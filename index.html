@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Расписание занятий</title>
   <meta name="description" content="Расписание пар по группам и преподавателям на каждую неделю семестра.">
-  <meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0c1019" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%232343b0'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%23142b80'/%3E%3Crect x='8' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='15' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='8' y='22' width='5' height='4' rx='1' fill='%23fff'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#f3faf8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1514" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%230f766e'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%23c2410c'/%3E%3Crect x='8' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='15' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='8' y='22' width='5' height='4' rx='1' fill='%23fff'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -50,12 +50,12 @@
             <select id="teacher"></select>
           </div>
           <div class="weeknav" id="weeknav" hidden>
-            <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя">‹</button>
+            <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
             <div class="wk-text" aria-live="polite">
               <span class="wk-label" id="wk-label"></span>
               <span class="wk-sub" id="wk-sub"></span>
             </div>
-            <button type="button" class="btn btn-icon" id="wk-next" aria-label="Следующая неделя">›</button>
+            <button type="button" class="btn btn-icon" id="wk-next" aria-label="Следующая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
             <button type="button" class="btn btn-quiet" id="wk-today" hidden>К текущей неделе</button>
           </div>
         </div>
