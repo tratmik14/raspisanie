@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Расписание занятий</title>
+  <meta name="description" content="Расписание пар по группам и преподавателям на каждую неделю семестра.">
+  <meta name="theme-color" content="#f3f5f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c1019" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%232343b0'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%23142b80'/%3E%3Crect x='8' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='15' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='8' y='22' width='5' height='4' rx='1' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div class="masthead-text">
+        <h1>Расписание занятий</h1>
+        <p class="lede">Пары на каждую неделю семестра: для группы или для преподавателя.</p>
+        <p class="stamp" id="stamp"></p>
+        <p class="status" id="status" data-state="loading" role="status">
+          <span id="status-text">Загружаю расписание из Google-таблицы…</span>
+          <button type="button" class="btn btn-quiet btn-small" id="retry" hidden>Повторить</button>
+        </p>
+      </div>
+      <div class="today">
+        <span class="eyebrow">Сегодня</span>
+        <strong id="today-label"></strong>
+      </div>
+    </header>
+
+    <main class="stack">
+      <section class="filters" aria-label="Чьё расписание и какая неделя">
+        <div class="filter-row">
+          <div class="field">
+            <span class="label" id="mode-label">Расписание</span>
+            <div class="seg" id="mode" role="radiogroup" aria-labelledby="mode-label">
+              <button type="button" role="radio" data-value="group">Группы</button>
+              <button type="button" role="radio" data-value="teacher">Преподавателя</button>
+            </div>
+          </div>
+          <div class="field f-entity" id="group-field">
+            <label for="group">Группа</label>
+            <select id="group"></select>
+          </div>
+          <div class="field f-entity" id="teacher-field" hidden>
+            <label for="teacher">Преподаватель</label>
+            <select id="teacher"></select>
+          </div>
+          <div class="weeknav" id="weeknav" hidden>
+            <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя">‹</button>
+            <div class="wk-text" aria-live="polite">
+              <span class="wk-label" id="wk-label"></span>
+              <span class="wk-sub" id="wk-sub"></span>
+            </div>
+            <button type="button" class="btn btn-icon" id="wk-next" aria-label="Следующая неделя">›</button>
+            <button type="button" class="btn btn-quiet" id="wk-today" hidden>К текущей неделе</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="now" id="now" hidden aria-label="Сегодня"></section>
+      <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра. Практика и праздники в нём не учтены.</span></p>
+
+      <section class="picker" id="picker" hidden aria-labelledby="h-picker">
+        <h2 id="h-picker">Выберите группу</h2>
+        <div class="picker" id="picker-body"></div>
+      </section>
+
+      <section class="week" id="week"></section>
+
+      <section class="empty" id="empty" hidden>
+        <p id="empty-text"></p>
+        <button type="button" class="btn" id="empty-action" hidden></button>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы. Время местное.</p>
+      <p>Если в расписании ошибка, сообщите куратору группы.</p>
+    </footer>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
