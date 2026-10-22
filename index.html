@@ -3,35 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Расписание занятий</title>
-  <meta name="description" content="Расписание пар по группам и преподавателям на каждую неделю семестра.">
-  <meta name="theme-color" content="#f3faf8" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0b1514" media="(prefers-color-scheme: dark)">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='24' rx='5' fill='%230f766e'/%3E%3Crect x='3' y='5' width='26' height='7' rx='3' fill='%23c2410c'/%3E%3Crect x='8' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='15' y='16' width='5' height='4' rx='1' fill='%23fff'/%3E%3Crect x='8' y='22' width='5' height='4' rx='1' fill='%23fff'/%3E%3C/svg%3E">
+  <title>Расписание · ТехноПортал</title>
+  <meta name="description" content="Расписание занятий и экзаменов Люберецкого техникума по группам и преподавателям.">
+  <meta name="theme-color" content="#22577a" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d2b1a" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="logo.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="page">
-    <header class="masthead">
-      <div class="masthead-text">
-        <h1>Расписание занятий</h1>
-        <p class="lede">Пары на каждую неделю семестра: для группы или для преподавателя.</p>
-        <p class="stamp" id="stamp"></p>
-        <p class="status" id="status" data-state="loading" role="status">
-          <span id="status-text">Загружаю расписание из Google-таблицы…</span>
-          <button type="button" class="btn btn-quiet btn-small" id="retry" hidden>Повторить</button>
-        </p>
-      </div>
-      <div class="today">
-        <span class="eyebrow">Сегодня</span>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="./" aria-label="ТехноПортал — на главную">
+        <img src="logo.png" alt="Логотип Люберецкого техникума" width="62" height="48">
+        <span class="brand-name">ГБПОУ МО<br>Люберецкий техникум<br>имени Героя Советского Союза,<br>лётчика-космонавта Ю. А. Гагарина</span>
+      </a>
+      <div class="portal">ТехноПортал</div>
+      <div class="sysinfo">
         <strong id="today-label"></strong>
+        <span id="term-label"></span>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <main class="stack">
+  <div class="page">
+    <div class="headline">
+      <h1 id="page-title">Расписание занятий</h1>
+      <p class="lede" id="page-lede">Пары на каждую неделю семестра: для группы или для преподавателя.</p>
+      <p class="stamp" id="stamp"></p>
+      <p class="status" id="status" data-state="loading" role="status">
+        <span id="status-text">Загружаю расписание из Google-таблицы…</span>
+        <button type="button" class="btn btn-quiet btn-small" id="retry" hidden>Повторить</button>
+      </p>
+    </div>
+
+    <nav class="views" role="tablist" aria-label="Разделы">
+      <button type="button" role="tab" id="tab-lessons" data-view="lessons" aria-controls="view-lessons">Расписание занятий</button>
+      <button type="button" role="tab" id="tab-exams" data-view="exams" aria-controls="view-exams">Расписание экзаменов</button>
+    </nav>
+
+    <main class="stack" id="view-lessons" role="tabpanel" aria-labelledby="tab-lessons">
       <section class="filters" aria-label="Чьё расписание и какая неделя">
         <div class="filter-row">
           <div class="field">
@@ -61,6 +74,7 @@
         </div>
       </section>
 
+      <section class="reminder" id="reminder" hidden aria-label="Ближайшая аттестация"></section>
       <section class="now" id="now" hidden aria-label="Сегодня"></section>
       <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра. Практика и праздники в нём не учтены.</span></p>
 
@@ -77,9 +91,87 @@
       </section>
     </main>
 
+    <main class="stack" id="view-exams" role="tabpanel" aria-labelledby="tab-exams" hidden>
+      <section class="filters" aria-label="Фильтры расписания экзаменов">
+        <div class="filter-row">
+          <div class="field f-mid">
+            <label for="e-group">Группа</label>
+            <select id="e-group"></select>
+          </div>
+          <div class="field f-mid">
+            <label for="e-teacher">Преподаватель</label>
+            <select id="e-teacher"></select>
+          </div>
+          <div class="field f-wide">
+            <label for="e-disc">Дисциплина</label>
+            <select id="e-disc"></select>
+          </div>
+          <div class="field f-date">
+            <label for="e-from">С</label>
+            <input type="date" id="e-from">
+          </div>
+          <div class="field f-date">
+            <label for="e-to">По</label>
+            <input type="date" id="e-to">
+          </div>
+        </div>
+        <div class="filter-row">
+          <div class="field f-search">
+            <label for="e-search">Поиск</label>
+            <input type="search" id="e-search" placeholder="Дисциплина, преподаватель, аудитория" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="label" id="e-type-label">Тип</span>
+            <div class="seg" id="e-type" role="radiogroup" aria-labelledby="e-type-label">
+              <button type="button" role="radio" data-value="all">Все</button>
+              <button type="button" role="radio" data-value="exam">Экзамены</button>
+              <button type="button" role="radio" data-value="credit">Зачёты</button>
+              <button type="button" role="radio" data-value="diff">Диф. зачёты</button>
+              <button type="button" role="radio" data-value="retake">Пересдачи</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label" id="e-status-label">Статус</span>
+            <div class="seg" id="e-status" role="radiogroup" aria-labelledby="e-status-label">
+              <button type="button" role="radio" data-value="all">Все</button>
+              <button type="button" role="radio" data-value="future">Будущие</button>
+              <button type="button" role="radio" data-value="past">Прошедшие</button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-quiet" id="e-reset" hidden>Сбросить фильтры</button>
+        </div>
+      </section>
+
+      <section class="tablebox" id="e-main" aria-labelledby="e-main-title">
+        <div class="table-head">
+          <h2 id="e-main-title">Экзамены и зачёты</h2>
+          <span class="count" id="e-count"></span>
+          <button type="button" class="btn" id="e-export">Экспорт в Excel</button>
+        </div>
+        <div class="table-wrap"><table class="smart" id="e-table"></table></div>
+        <div class="pager" id="e-pager"></div>
+      </section>
+
+      <section class="tablebox" id="e-retakes" aria-labelledby="e-retakes-title">
+        <div class="table-head">
+          <h2 id="e-retakes-title">Пересдачи</h2>
+          <span class="count" id="e-rcount"></span>
+        </div>
+        <div class="table-wrap"><table class="smart" id="e-rtable"></table></div>
+        <div class="pager" id="e-rpager"></div>
+      </section>
+
+      <section class="empty" id="e-empty" hidden></section>
+    </main>
+
     <footer class="foot">
-      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы. Время местное.</p>
-      <p>Если в расписании ошибка, сообщите куратору группы.</p>
+      <p>© <span id="year"></span> ТехноПортал. ГБПОУ МО «Люберецкий техникум им. Ю.А. Гагарина»</p>
+      <p>Корпуса: Люберецкий, Гагаринский, Красково, Угреша</p>
+      <p class="foot-links">
+        <a href="https://luberteh.ru/" target="_blank" rel="noopener noreferrer">Перейти на сайт →</a>
+        <a href="https://yandex.ru/maps/?text=%D0%BB%D1%8E%D0%B1%D0%B5%D1%80%D0%B5%D1%86%D0%BA%D0%B8%D0%B9%20%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D1%83%D0%BC%20%D0%BA%D0%BE%D1%80%D0%BF%D1%83%D1%81&ll=37.969070%2C55.638299&z=12" target="_blank" rel="noopener noreferrer">Посмотреть на карте →</a>
+      </p>
+      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
     </footer>
   </div>
 
