@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="portal">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Расписание · ТехноПортал</title>
-  <meta name="description" content="Расписание занятий и экзаменов Люберецкого техникума по группам и преподавателям.">
-  <meta name="theme-color" content="#22577a" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d2b1a" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Расписание занятий и экзаменов Люберецкого техникума, часы по предметам и график учебного процесса.">
+  <meta name="theme-color" content="#22577a">
   <link rel="icon" href="logo.png" type="image/png">
+  <script>try { var t = localStorage.getItem('raspisanie.theme.v1'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -21,9 +21,18 @@
         <span class="brand-name">ГБПОУ МО<br>Люберецкий техникум<br>имени Героя Советского Союза,<br>лётчика-космонавта Ю. А. Гагарина</span>
       </a>
       <div class="portal">ТехноПортал</div>
-      <div class="sysinfo">
-        <strong id="today-label"></strong>
-        <span id="term-label"></span>
+      <div class="top-actions">
+        <div class="sysinfo">
+          <strong id="today-label"></strong>
+          <span id="term-label"></span>
+        </div>
+        <button type="button" class="icon-btn" id="theme-btn" aria-haspopup="dialog" aria-label="Тема оформления" title="Тема оформления">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.3" fill="currentColor"/><circle cx="10.5" cy="7" r="1.3" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.3" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="account-btn" id="account-btn" aria-haspopup="dialog" hidden>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          <span id="account-label">Вход для администратора</span>
+        </button>
       </div>
     </div>
   </header>
@@ -40,40 +49,53 @@
     </div>
 
     <nav class="views" role="tablist" aria-label="Разделы">
-      <button type="button" role="tab" id="tab-lessons" data-view="lessons" aria-controls="view-lessons">Расписание занятий</button>
-      <button type="button" role="tab" id="tab-exams" data-view="exams" aria-controls="view-exams">Расписание экзаменов</button>
+      <button type="button" role="tab" id="tab-lessons" data-view="lessons" aria-controls="view-lessons">Занятия</button>
+      <button type="button" role="tab" id="tab-hours" data-view="hours" aria-controls="view-hours">Часы</button>
+      <button type="button" role="tab" id="tab-grafik" data-view="grafik" aria-controls="view-grafik">График</button>
+      <button type="button" role="tab" id="tab-exams" data-view="exams" aria-controls="view-exams">Экзамены</button>
+      <button type="button" role="tab" id="tab-history" data-view="history" aria-controls="view-history">Изменения<span class="tab-count" id="tab-history-count"></span></button>
     </nav>
 
-    <main class="stack" id="view-lessons" role="tabpanel" aria-labelledby="tab-lessons">
-      <section class="filters" aria-label="Чьё расписание и какая неделя">
-        <div class="filter-row">
-          <div class="field">
-            <span class="label" id="mode-label">Расписание</span>
-            <div class="seg" id="mode" role="radiogroup" aria-labelledby="mode-label">
-              <button type="button" role="radio" data-value="group">Группы</button>
-              <button type="button" role="radio" data-value="teacher">Преподавателя</button>
-            </div>
-          </div>
-          <div class="field f-entity" id="group-field">
-            <label for="group">Группа</label>
-            <select id="group"></select>
-          </div>
-          <div class="field f-entity" id="teacher-field" hidden>
-            <label for="teacher">Преподаватель</label>
-            <select id="teacher"></select>
-          </div>
-          <div class="weeknav" id="weeknav" hidden>
-            <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-            <div class="wk-text" aria-live="polite">
-              <span class="wk-label" id="wk-label"></span>
-              <span class="wk-sub" id="wk-sub"></span>
-            </div>
-            <button type="button" class="btn btn-icon" id="wk-next" aria-label="Следующая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
-            <button type="button" class="btn btn-quiet" id="wk-today" hidden>К текущей неделе</button>
+    <section class="filters" id="who" aria-label="Чьё расписание">
+      <div class="filter-row">
+        <div class="field">
+          <span class="label" id="mode-label">Расписание</span>
+          <div class="seg" id="mode" role="radiogroup" aria-labelledby="mode-label">
+            <button type="button" role="radio" data-value="group">Группы</button>
+            <button type="button" role="radio" data-value="teacher">Преподавателя</button>
           </div>
         </div>
-      </section>
+        <div class="field f-entity" id="group-field">
+          <label for="group">Группа</label>
+          <select id="group"></select>
+        </div>
+        <div class="field f-entity" id="teacher-field" hidden>
+          <label for="teacher">Преподаватель</label>
+          <select id="teacher"></select>
+        </div>
+        <div class="field" id="half-field" hidden>
+          <span class="label" id="half-label">Период</span>
+          <div class="seg" id="half" role="radiogroup" aria-labelledby="half-label">
+            <button type="button" role="radio" data-value="1">1 семестр</button>
+            <button type="button" role="radio" data-value="2">2 семестр</button>
+            <button type="button" role="radio" data-value="0">Учебный год</button>
+          </div>
+        </div>
+        <div class="weeknav" id="weeknav" hidden>
+          <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <div class="wk-text" aria-live="polite">
+            <span class="wk-label" id="wk-label"></span>
+            <span class="wk-sub" id="wk-sub"></span>
+          </div>
+          <button type="button" class="btn btn-icon" id="wk-next" aria-label="Следующая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+          <button type="button" class="btn btn-quiet" id="wk-today" hidden>К текущей неделе</button>
+        </div>
+      </div>
+    </section>
 
+    <main class="stack" id="view-lessons" role="tabpanel" aria-labelledby="tab-lessons">
+      <p class="admin-bar" id="admin-bar" hidden>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить или перенести её. На свободное время пару ставит кнопка «Добавить пару».</p>
+      <section class="ribbon" id="ribbon" hidden aria-label="Учебный год группы по неделям"></section>
       <section class="reminder" id="reminder" hidden aria-label="Ближайшая аттестация"></section>
       <section class="now" id="now" hidden aria-label="Сегодня"></section>
       <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра. Практика и праздники в нём не учтены.</span></p>
@@ -91,62 +113,119 @@
       </section>
     </main>
 
-    <main class="stack" id="view-exams" role="tabpanel" aria-labelledby="tab-exams" hidden>
-      <section class="filters" aria-label="Фильтры расписания экзаменов">
+    <main class="stack" id="view-hours" role="tabpanel" aria-labelledby="tab-hours" hidden>
+      <div class="stack" id="hours-body"></div>
+      <section class="empty" id="h-empty" hidden>
+        <p id="h-empty-text"></p>
+        <button type="button" class="btn" id="h-empty-action" hidden></button>
+      </section>
+    </main>
+
+    <main class="stack" id="view-grafik" role="tabpanel" aria-labelledby="tab-grafik" hidden>
+      <section class="filters" aria-label="Курс">
         <div class="filter-row">
-          <div class="field f-mid">
-            <label for="e-group">Группа</label>
-            <select id="e-group"></select>
-          </div>
-          <div class="field f-mid">
-            <label for="e-teacher">Преподаватель</label>
-            <select id="e-teacher"></select>
-          </div>
-          <div class="field f-wide">
-            <label for="e-disc">Дисциплина</label>
-            <select id="e-disc"></select>
-          </div>
-          <div class="field f-date">
-            <label for="e-from">С</label>
-            <input type="date" id="e-from">
-          </div>
-          <div class="field f-date">
-            <label for="e-to">По</label>
-            <input type="date" id="e-to">
+          <div class="field">
+            <span class="label" id="g-course-label">Курс</span>
+            <div class="seg" id="g-course" role="radiogroup" aria-labelledby="g-course-label">
+              <button type="button" role="radio" data-value="all">Все</button>
+              <button type="button" role="radio" data-value="1">1</button>
+              <button type="button" role="radio" data-value="2">2</button>
+              <button type="button" role="radio" data-value="3">3</button>
+              <button type="button" role="radio" data-value="4">4</button>
+            </div>
           </div>
         </div>
+      </section>
+      <div class="stack" id="grafik-body"></div>
+    </main>
+
+    <main class="stack" id="view-exams" role="tabpanel" aria-labelledby="tab-exams" hidden>
+      <section class="filters" aria-label="Фильтры расписания экзаменов">
         <div class="filter-row">
           <div class="field f-search">
             <label for="e-search">Поиск</label>
             <input type="search" id="e-search" placeholder="Дисциплина, преподаватель, аудитория" autocomplete="off">
           </div>
-          <div class="field">
-            <span class="label" id="e-type-label">Тип</span>
-            <div class="seg" id="e-type" role="radiogroup" aria-labelledby="e-type-label">
-              <button type="button" role="radio" data-value="all">Все</button>
-              <button type="button" role="radio" data-value="exam">Экзамены</button>
-              <button type="button" role="radio" data-value="credit">Зачёты</button>
-              <button type="button" role="radio" data-value="diff">Диф. зачёты</button>
-              <button type="button" role="radio" data-value="retake">Пересдачи</button>
+          <button type="button" class="btn sheet-open" id="e-sheet-open" aria-controls="e-sheet" aria-expanded="false">Фильтры<span class="fcount" id="e-fcount"></span></button>
+        </div>
+        <div class="sheet" id="e-sheet" aria-label="Фильтры">
+          <div class="sheet-head">
+            <strong>Фильтры</strong>
+            <button type="button" class="btn btn-quiet" id="e-sheet-close">Готово</button>
+          </div>
+          <div class="filter-row">
+            <div class="field f-mid">
+              <span class="label" id="ms-group-label">Группа</span>
+              <div class="ms" id="ms-group" data-key="group" data-all="Все группы" data-many="групп" aria-labelledby="ms-group-label"></div>
+            </div>
+            <div class="field f-mid">
+              <span class="label" id="ms-teacher-label">Преподаватель</span>
+              <div class="ms" id="ms-teacher" data-key="teacher" data-all="Все преподаватели" data-many="преподавателей" aria-labelledby="ms-teacher-label"></div>
+            </div>
+            <div class="field f-wide">
+              <span class="label" id="ms-disc-label">Дисциплина</span>
+              <div class="ms" id="ms-disc" data-key="disc" data-all="Все дисциплины" data-many="дисциплин" aria-labelledby="ms-disc-label"></div>
+            </div>
+            <div class="field f-date">
+              <label for="e-from">С</label>
+              <input type="date" id="e-from">
+            </div>
+            <div class="field f-date">
+              <label for="e-to">По</label>
+              <input type="date" id="e-to">
             </div>
           </div>
-          <div class="field">
-            <span class="label" id="e-status-label">Статус</span>
-            <div class="seg" id="e-status" role="radiogroup" aria-labelledby="e-status-label">
-              <button type="button" role="radio" data-value="all">Все</button>
-              <button type="button" role="radio" data-value="future">Будущие</button>
-              <button type="button" role="radio" data-value="past">Прошедшие</button>
+          <div class="filter-row">
+            <div class="field">
+              <span class="label" id="e-type-label">Тип</span>
+              <div class="seg" id="e-type" role="radiogroup" aria-labelledby="e-type-label">
+                <button type="button" role="radio" data-value="all">Все</button>
+                <button type="button" role="radio" data-value="exam">Экзамены</button>
+                <button type="button" role="radio" data-value="credit">Зачёты</button>
+                <button type="button" role="radio" data-value="diff">Диф. зачёты</button>
+                <button type="button" role="radio" data-value="retake">Пересдачи</button>
+              </div>
             </div>
+            <div class="field">
+              <span class="label" id="e-status-label">Статус</span>
+              <div class="seg" id="e-status" role="radiogroup" aria-labelledby="e-status-label">
+                <button type="button" role="radio" data-value="all">Все</button>
+                <button type="button" role="radio" data-value="future">Будущие</button>
+                <button type="button" role="radio" data-value="past">Прошедшие</button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label" id="e-half-label">Полугодие</span>
+              <div class="seg" id="e-half" role="radiogroup" aria-labelledby="e-half-label">
+                <button type="button" role="radio" data-value="all">Все</button>
+                <button type="button" role="radio" data-value="1">1 полугодие</button>
+                <button type="button" role="radio" data-value="2">2 полугодие</button>
+              </div>
+            </div>
+            <label class="check"><input type="checkbox" id="e-inlist"> Пересдачи и в общем списке</label>
           </div>
-          <button type="button" class="btn btn-quiet" id="e-reset" hidden>Сбросить фильтры</button>
+          <div class="filter-row favs">
+            <span class="label">Избранные фильтры</span>
+            <div class="chips" id="e-favs"></div>
+            <button type="button" class="btn btn-small" id="e-fav-save">Сохранить текущие</button>
+            <button type="button" class="btn btn-quiet btn-small" id="e-reset" hidden>Сбросить фильтры</button>
+          </div>
         </div>
       </section>
+      <div class="sheet-backdrop" id="e-backdrop" hidden></div>
 
       <section class="tablebox" id="e-main" aria-labelledby="e-main-title">
         <div class="table-head">
           <h2 id="e-main-title">Экзамены и зачёты</h2>
           <span class="count" id="e-count"></span>
-          <button type="button" class="btn" id="e-export">Экспорт в Excel</button>
+          <div class="table-actions">
+            <button type="button" class="btn btn-small" id="e-cols" aria-haspopup="dialog">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="7" cy="18" r="2" fill="currentColor"/></svg>
+              Колонки
+            </button>
+            <button type="button" class="btn btn-small" id="e-template">Шаблон</button>
+            <button type="button" class="btn btn-small" id="e-export">Экспорт в Excel</button>
+          </div>
         </div>
         <div class="table-wrap"><table class="smart" id="e-table"></table></div>
         <div class="pager" id="e-pager"></div>
@@ -162,20 +241,163 @@
       </section>
 
       <section class="empty" id="e-empty" hidden></section>
+
+      <dialog class="dlg" id="col-dialog" aria-labelledby="col-title">
+        <form method="dialog">
+          <h2 id="col-title">Колонки таблицы</h2>
+          <p class="hint">Отметьте, какие колонки показывать, и расставьте их стрелками. Настройка сохраняется в этом браузере.</p>
+          <ol class="col-list" id="col-list"></ol>
+          <div class="dlg-actions">
+            <button type="button" class="btn btn-quiet" id="col-reset">Как было</button>
+            <button type="submit" class="btn btn-primary">Готово</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="dlg" id="fav-dialog" aria-labelledby="fav-title">
+        <form method="dialog" id="fav-form">
+          <h2 id="fav-title">Сохранить фильтры</h2>
+          <label class="field" for="fav-name"><span class="label">Название набора</span>
+            <input type="text" id="fav-name" maxlength="40" placeholder="Например, Экзамены ИС2-25" required>
+          </label>
+          <div class="dlg-actions">
+            <button type="button" class="btn btn-quiet" id="fav-cancel">Отмена</button>
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </div>
+        </form>
+      </dialog>
+    </main>
+
+    <main class="stack" id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+      <section class="filters" aria-label="Фильтр изменений">
+        <div class="filter-row">
+          <div class="field f-entity">
+            <label for="h-group">Группа</label>
+            <select id="h-group"><option value="">Все группы</option></select>
+          </div>
+        </div>
+      </section>
+      <div class="stack" id="history-body"></div>
     </main>
 
     <footer class="foot">
       <p>© <span id="year"></span> ТехноПортал. ГБПОУ МО «Люберецкий техникум им. Ю.А. Гагарина»</p>
       <p>Корпуса: Люберецкий, Гагаринский, Красково, Угреша</p>
       <p class="foot-links">
-        <a href="https://luberteh.ru/" target="_blank" rel="noopener noreferrer">Перейти на сайт →</a>
-        <a href="https://yandex.ru/maps/?text=%D0%BB%D1%8E%D0%B1%D0%B5%D1%80%D0%B5%D1%86%D0%BA%D0%B8%D0%B9%20%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D1%83%D0%BC%20%D0%BA%D0%BE%D1%80%D0%BF%D1%83%D1%81&ll=37.969070%2C55.638299&z=12" target="_blank" rel="noopener noreferrer">Посмотреть на карте →</a>
+        <a href="https://luberteh.ru/" target="_blank" rel="noopener noreferrer">Сайт техникума</a>
+        <a href="https://yandex.ru/maps/?text=%D0%BB%D1%8E%D0%B1%D0%B5%D1%80%D0%B5%D1%86%D0%BA%D0%B8%D0%B9%20%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D1%83%D0%BC%20%D0%BA%D0%BE%D1%80%D0%BF%D1%83%D1%81&ll=37.969070%2C55.638299&z=12" target="_blank" rel="noopener noreferrer">Корпуса на карте</a>
       </p>
-      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
+      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы, замены вносят администраторы техникума. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
+      <p class="sysline" id="sysline"></p>
     </footer>
   </div>
 
+  <dialog class="dlg" id="login-dialog" aria-labelledby="login-title">
+    <form id="login-form" novalidate>
+      <h2 id="login-title">Вход для администратора</h2>
+      <p class="hint">После входа у каждой пары появится карандаш. Замены, отмены и переносы сразу увидят все, кто открыл расписание.</p>
+      <p class="hint demo-note" id="login-demo" hidden>Демо-режим: логин demo, пароль demo. Правки сохраняются только в этом браузере.</p>
+      <label class="field"><span class="label">Логин</span><input type="text" id="login-name" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+      <label class="field"><span class="label">Пароль</span><input type="password" id="login-pass" autocomplete="current-password" required></label>
+      <p class="error" id="login-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="login-cancel">Отмена</button>
+        <button type="submit" class="btn btn-primary" id="login-submit">Войти</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg" id="account-dialog" aria-labelledby="account-title">
+    <form method="dialog">
+      <h2 id="account-title">Администратор</h2>
+      <p class="hint" id="account-who"></p>
+      <p class="hint demo-note" id="account-mode" hidden>Демо-режим: правки видны только в этом браузере.</p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="account-password">Сменить пароль</button>
+        <button type="button" class="btn" id="account-logout">Выйти</button>
+        <button type="button" class="btn btn-primary" id="account-close">Готово</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg" id="pass-dialog" aria-labelledby="pass-title">
+    <form id="pass-form" novalidate>
+      <h2 id="pass-title">Смена пароля</h2>
+      <label class="field"><span class="label">Текущий пароль</span><input type="password" id="pass-old" autocomplete="current-password" required></label>
+      <label class="field"><span class="label">Новый пароль, не короче 8 символов</span><input type="password" id="pass-new" autocomplete="new-password" minlength="8" required></label>
+      <label class="field"><span class="label">Новый пароль ещё раз</span><input type="password" id="pass-again" autocomplete="new-password" minlength="8" required></label>
+      <p class="error" id="pass-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="pass-cancel">Отмена</button>
+        <button type="submit" class="btn btn-primary">Сменить пароль</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg dlg-wide" id="edit-dialog" aria-labelledby="ed-title">
+    <form method="dialog" novalidate>
+      <h2 id="ed-title"></h2>
+      <p class="hint" id="ed-now"></p>
+      <div class="field" id="ed-group-field">
+        <label for="ed-group">Группа</label>
+        <select id="ed-group"></select>
+      </div>
+      <div class="field">
+        <span class="label" id="ed-kind-label">Что сделать</span>
+        <div class="seg" id="ed-kind" role="radiogroup" aria-labelledby="ed-kind-label">
+          <button type="button" role="radio" data-value="replace">Заменить</button>
+          <button type="button" role="radio" data-value="cancel">Отменить</button>
+          <button type="button" role="radio" data-value="move">Перенести</button>
+          <button type="button" role="radio" data-value="add">Поставить пару</button>
+        </div>
+      </div>
+      <div class="field" id="ed-slot-field">
+        <label for="ed-slot">Время</label>
+        <select id="ed-slot"></select>
+      </div>
+      <div class="row2" id="ed-move" hidden>
+        <div class="field"><label for="ed-move-date">Перенести на дату</label><input type="date" id="ed-move-date"></div>
+        <div class="field"><label for="ed-move-slot">Время</label><select id="ed-move-slot"></select></div>
+      </div>
+      <div class="row2" id="ed-fields">
+        <div class="field f-full"><label for="ed-disc">Дисциплина</label><input type="text" id="ed-disc" list="dl-disc" autocomplete="off"></div>
+        <div class="field"><label for="ed-teacher">Преподаватель</label><input type="text" id="ed-teacher" list="dl-teacher" autocomplete="off"></div>
+        <div class="field"><label for="ed-room">Аудитория</label><input type="text" id="ed-room" list="dl-room" autocomplete="off"></div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="ed-sub">Для кого</label>
+          <select id="ed-sub"><option value="0">Вся группа</option><option value="1">1 подгруппа</option><option value="2">2 подгруппа</option></select>
+        </div>
+        <div class="field"><label for="ed-note">Причина, её видят все</label><input type="text" id="ed-note" maxlength="200" placeholder="Например, преподаватель на больничном"></div>
+      </div>
+      <p class="error" id="ed-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet btn-danger" id="ed-remove">Убрать правку</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-quiet" id="ed-cancel">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="ed-save">Сохранить замену</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg dlg-wide" id="theme-dialog" aria-labelledby="theme-title">
+    <form method="dialog">
+      <h2 id="theme-title">Тема оформления</h2>
+      <p class="hint">Тема запоминается в этом браузере.</p>
+      <ul class="theme-list" id="theme-list"></ul>
+      <div class="dlg-actions"><button type="submit" class="btn btn-primary">Готово</button></div>
+    </form>
+  </dialog>
+
+  <datalist id="dl-disc"></datalist>
+  <datalist id="dl-teacher"></datalist>
+  <datalist id="dl-room"></datalist>
+  <div class="toast" id="toast" role="status" hidden></div>
+
   <script src="config.js"></script>
+  <script src="hours.js"></script>
+  <script src="api.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
