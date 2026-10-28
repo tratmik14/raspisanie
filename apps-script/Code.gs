@@ -89,9 +89,17 @@ function asText(v) {
 }
 function writeRow(name, cols, head, obj, row) {
   var sh = sheet(name, cols, head), vals = [cols.map(function (c) { return obj[c] == null ? '' : String(obj[c]); })];
-  if (row) sh.getRange(row, 1, 1, cols.length).setValues(vals);
-  else sh.getRange(sh.getLastRow() + 1, 1, 1, cols.length).setValues(vals);
+  var at = row || sh.getLastRow() + 1;
+  // a new sheet has 1000 rows; past them getRange fails, so add rows (as plain text) in advance
+  if (at > sh.getMaxRows()) {
+    var from = sh.getMaxRows();
+    sh.insertRowsAfter(from, 500);
+    sh.getRange(from + 1, 1, 500, cols.length).setNumberFormat('@');
+  }
+  sh.getRange(at, 1, 1, cols.length).setValues(vals);
 }
+// Writes must reach the sheet before the lock goes, or the next request may read old rows.
+function release(lock) { SpreadsheetApp.flush(); lock.releaseLock(); }
 function readEdits() {
   return readRows(SHEETS.edits, EDIT_COLS, EDIT_HEAD).map(function (e) { e.sub = +e.sub || 0; return e; });
 }
@@ -160,7 +168,7 @@ function changePassword(req) {
     admin.salt = Utilities.getUuid();
     admin.hash = hashPassword(pass, admin.salt);
     writeRow(SHEETS.admins, ADMIN_COLS, ADMIN_HEAD, admin, admin._row);
-  } finally { lock.releaseLock(); }
+  } finally { release(lock); }
   return { ok: true };
 }
 
@@ -250,7 +258,7 @@ function save(req) {
         saved.push(e);
       }
     });
-  } finally { lock.releaseLock(); }
+  } finally { release(lock); }
   return { ok: true, edits: saved.map(function (e) { e = publicEdit(e); e.authorName = user.name; return e; }) };
 }
 // Removing an edit brings back the lesson from the main timetable; the row stays as «deleted».
@@ -274,7 +282,7 @@ function remove(req) {
       logChange(user, 'delete', e, before, '', req.comment);
       removed.push(e.id);
     });
-  } finally { lock.releaseLock(); }
+  } finally { release(lock); }
   return { ok: true, removed: removed };
 }
 

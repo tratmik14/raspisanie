@@ -243,7 +243,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; -webkit-tap-highlight-color: rgba(34, 87, 122, .16); }
 body {
   margin: 0;
   background-color: var(--bg);
@@ -257,6 +257,11 @@ body {
 }
 @media (min-width: 2200px) { body { font-size: 20px; } }
 [hidden] { display: none !important; }
+/* «Перейти к расписанию»: видна только тому, кто ходит клавишей Tab */
+.skip { position: absolute; left: 16px; top: -100px; z-index: 100; padding: 10px 16px; border-radius: 10px; background: var(--primary); color: var(--on-primary); font-weight: 700; text-decoration: none; }
+.skip:focus { top: 12px; }
+#page-title:focus { outline: none; }
+#page-title:focus-visible { outline: 3px solid var(--secondary); outline-offset: 4px; }
 :focus-visible { outline: 3px solid var(--secondary); outline-offset: 2px; border-radius: 6px; }
 button, select { cursor: pointer; }
 a { color: var(--primary); }
@@ -370,6 +375,8 @@ abbr[title] { text-decoration: underline dotted; cursor: help; }
 }
 @media (min-width: 860px) and (min-height: 760px) {
   #who { position: sticky; top: 0; z-index: 5; }
+  /* keyboard focus and scrolling stop below the sticky filter band, not under it */
+  html { scroll-padding-top: var(--who-h, 150px); }
 }
 .filter-row { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; min-width: 0; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -769,7 +776,7 @@ select:hover, input:hover { border-color: var(--primary); }
 .badge.mark { margin-left: 6px; }
 
 /* Dialogs */
-.dlg { border: 0; border-radius: 16px; padding: 0; width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
+.dlg { border: 0; border-radius: 16px; padding: 0; width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); background: var(--surface); color: var(--fg); box-shadow: var(--shadow); overscroll-behavior: contain; }
 .dlg-wide { width: min(640px, calc(100vw - 32px)); }
 .dlg::backdrop { background: rgba(0, 0, 0, .5); }
 .dlg form { padding: 20px; display: grid; gap: 14px; }
@@ -885,6 +892,7 @@ select:hover, input:hover { border-color: var(--primary); }
     bottom: 0;
     max-height: 85vh;
     overflow: auto;
+    overscroll-behavior: contain;
     background: var(--surface);
     border-radius: 18px 18px 0 0;
     padding: 0 max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));

@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '2.1';
+  var SITE_VERSION = '2.2';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -75,15 +75,30 @@
     return many;
   }
   function count(n, one, few, many) { return n.toLocaleString('ru-RU') + ' ' + plural(n, one, few, many); }
-  function fmtDayMonth(iso) { var d = isoToDate(iso); return d.getDate() + ' ' + MONTHS_GEN[d.getMonth()]; }
-  function fmtShort(iso) { var p = isoParts(iso); return pad(p.d) + '.' + pad(p.m) + '.' + p.y; }
+  // dates go through Intl.DateTimeFormat; the hand-made forms stay for browsers without it
+  var DF = (function () {
+    try {
+      return {
+        dayMonth: new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }),
+        short: new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        time: new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      };
+    } catch (e) { return null; }
+  })();
+  function fmtDayMonth(iso) { var d = isoToDate(iso); return DF ? DF.dayMonth.format(d) : d.getDate() + ' ' + MONTHS_GEN[d.getMonth()]; }
+  function fmtShort(iso) {
+    if (DF) return DF.short.format(isoToDate(iso));
+    var p = isoParts(iso);
+    return pad(p.d) + '.' + pad(p.m) + '.' + p.y;
+  }
   function fmtRange(a, b) {
     var x = isoToDate(a), y = isoToDate(b);
+    if (DF && DF.dayMonth.formatRange) return DF.dayMonth.formatRange(x, y);
     if (x.getMonth() === y.getMonth()) return x.getDate() + '–' + y.getDate() + ' ' + MONTHS_GEN[y.getMonth()];
     return x.getDate() + ' ' + MONTHS_GEN[x.getMonth()] + ' – ' + y.getDate() + ' ' + MONTHS_GEN[y.getMonth()];
   }
   function fmtStamp(ms) {
-    var d = new Date(ms), t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    var d = new Date(ms), t = DF ? DF.time.format(d) : pad(d.getHours()) + ':' + pad(d.getMinutes());
     var iso = ymd(d.getFullYear(), d.getMonth() + 1, d.getDate());
     return iso === todayISO() ? 'сегодня в ' + t : fmtDayMonth(iso) + ' в ' + t;
   }
@@ -872,7 +887,7 @@
     $('teacher').innerHTML = optionsHTML(net.bulk ? 'Загружаю список…' : 'Выберите преподавателя', DB.teachers, state.teacher);
     $('picker-body').innerHTML = courses.map(function (c) {
       return '<div class="course"><h3 class="eyebrow">' + esc(c.label) + '</h3><div class="chips">' + c.groups.map(function (g) {
-        return '<button type="button" class="chip" data-group="' + esc(g) + '">' + esc(g) + '</button>';
+        return '<button type="button" class="chip" translate="no" data-group="' + esc(g) + '">' + esc(g) + '</button>';
       }).join('') + '</div></div>';
     }).join('');
     fillExamOptions();
@@ -969,7 +984,7 @@
   }
   function entryHTML(e, sel) {
     var meta = [], cls = 'entry', flag = '', note = '';
-    if (sel.mode === 'teacher') e.groups.sort(cmpRu).forEach(function (g) { meta.push('<span class="grp">' + esc(g) + '</span>'); });
+    if (sel.mode === 'teacher') e.groups.sort(cmpRu).forEach(function (g) { meta.push('<span class="grp" translate="no">' + esc(g) + '</span>'); });
     else if (e.teacher) meta.push('<span>' + esc(e.teacher) + '</span>');
     if (e.room) meta.push('<span>' + esc(roomLabel(e.room)) + '</span>');
     if (e.sub) meta.push('<span class="tag">' + e.sub + ' подгруппа</span>');
@@ -1373,7 +1388,7 @@
       b.setAttribute('aria-checked', b.getAttribute('data-value') === gcourse ? 'true' : 'false');
     });
     if (GRAFIK.status === 'loading') { box.innerHTML = '<p class="empty">Загружаю график учебного процесса…</p>'; return; }
-    if (GRAFIK.status === 'error') { box.innerHTML = '<p class="empty">Не удалось загрузить файл графика (data/grafik.json).</p>'; return; }
+    if (GRAFIK.status === 'error') { box.innerHTML = '<p class="empty">Не удалось загрузить график учебного процесса. Обновите страницу. Если ошибка повторяется, проверьте, что на сайт загружена папка data с файлом grafik.json.</p>'; return; }
     var d = GRAFIK.data, weeks = d.weeks, cur = currentWeekIso(), ci = weeks.indexOf(cur);
     var byCourse = {};
     Object.keys(d.groups).forEach(function (k) { var c = d.groups[k].course || 0; (byCourse[c] || (byCourse[c] = [])).push(k); });
@@ -1460,7 +1475,7 @@
       var was = editWas(e);
       var now = e.kind === 'cancel' ? 'Пары не будет' : [splitCode(e.disc).name, e.teacher, e.room ? roomLabel(e.room) : '', e.sub ? e.sub + ' подгруппа' : ''].filter(Boolean).join(', ');
       return '<li class="change k-' + e.kind + '"><div class="change-when"><strong>' + esc(cap(WEEKDAYS[isoToDate(e.date).getDay()])) + ', ' + esc(fmtDayMonth(e.date)) + '</strong><span>' + esc(slotLabel(e.start)) + '</span></div>' +
-        '<div class="change-what"><p><span class="grp">' + esc(e.group) + '</span> <span class="badge b-' + e.kind + '">' + KIND_LABEL[e.kind] + '</span></p>' +
+        '<div class="change-what"><p><span class="grp" translate="no">' + esc(e.group) + '</span> <span class="badge b-' + e.kind + '">' + KIND_LABEL[e.kind] + '</span></p>' +
         '<p class="change-now">' + esc(now) + '</p>' + (was ? '<p class="was">Было: ' + esc(was) + '</p>' : '') + (e.note ? '<p class="was">Причина: ' + esc(e.note) + '</p>' : '') +
         sourceHTML({ edit: e, groups: [e.group] }) + '</div>' +
         (admin ? '<div class="change-act"><button type="button" class="btn btn-small" data-open-edit="' + esc(e.id) + '">Изменить</button><button type="button" class="btn btn-quiet btn-small" data-remove-edit="' + esc(e.id) + '">Убрать</button></div>' : '') + '</li>';
@@ -1481,7 +1496,7 @@
         var before = snapText(h.before), after = snapText(h.after);
         var t = new Date(h.time);
         return '<li><time datetime="' + esc(h.time) + '">' + esc(isNaN(t) ? h.time : fmtStamp(t.getTime())) + '</time>' +
-          '<p>' + typeTag(historyType(h)) + ' <strong>' + esc(ACTION_LABEL[h.action] || h.action) + '</strong>' + (h.name ? ', ' + esc(h.name) : '') + '. <span class="grp">' + esc(h.group) + '</span> ' +
+          '<p>' + typeTag(historyType(h)) + ' <strong>' + esc(ACTION_LABEL[h.action] || h.action) + '</strong>' + (h.name ? ', ' + esc(h.name) : '') + '. <span class="grp" translate="no">' + esc(h.group) + '</span> ' +
           esc(fmtDayMonth(h.date)) + ', ' + esc(slotLabel(h.start)) + '.</p>' +
           (before ? '<p class="was">Было: ' + esc(before) + '</p>' : '') + (after ? '<p class="change-now">Стало: ' + esc(after) + '</p>' : '') +
           (h.comment ? '<p class="was">Комментарий: ' + esc(h.comment) + '</p>' : '') + '</li>';
@@ -1570,7 +1585,7 @@
     var r = it.rec, v;
     switch (col.key) {
       case 'num': return '<td class="num" data-label="№">' + i + '</td>';
-      case 'group': return '<td data-label="Группа"><span class="grp">' + esc(r.group) + '</span></td>';
+      case 'group': return '<td data-label="Группа"><span class="grp" translate="no">' + esc(r.group) + '</span></td>';
       case 'disc': return '<td class="title" data-label="Дисциплина">' + discHTML(r.discipline) + (it.retake ? ' (Пересдача)' : '') + '</td>';
       case 'teacher': return '<td data-label="Преподаватель">' + esc(r.teacher || '—') + '</td>';
       case 'date': return '<td class="mono" data-label="Дата">' + fmtShort(it.date) + '</td>';
@@ -1615,7 +1630,7 @@
   function msInit(id) {
     var el = $(id), key = el.getAttribute('data-key');
     el.innerHTML = '<button type="button" class="ms-btn" aria-haspopup="true" aria-expanded="false" aria-labelledby="' + id + '-label ' + id + '-value"><span id="' + id + '-value"></span></button>' +
-      '<div class="ms-pop" hidden><input type="search" placeholder="Найти в списке" aria-label="Найти в списке" autocomplete="off">' +
+      '<div class="ms-pop" hidden><input type="search" name="find_' + key + '" placeholder="Найти в списке…" aria-label="Найти в списке" autocomplete="off">' +
       '<ul class="ms-list"></ul><div class="ms-foot"><button type="button" class="btn btn-quiet btn-small" data-ms-clear>Сбросить</button>' +
       '<button type="button" class="btn btn-small" data-ms-close>Готово</button></div></div>';
     var btn = el.querySelector('.ms-btn'), pop = el.querySelector('.ms-pop'), find = pop.querySelector('input');
@@ -1939,6 +1954,7 @@
     $('ed-move').hidden = kind !== 'move';
     $('ed-slot-field').hidden = kind !== 'add';
     $('ed-save').textContent = kind === 'cancel' ? 'Отменить пару' : kind === 'move' ? 'Перенести пару' : kind === 'add' ? 'Поставить пару' : 'Сохранить замену';
+    syncRoving();
   }
   function edSave() {
     var targets = $('ed-group').value === '*' ? ed.groups : [ed.group];
@@ -1965,6 +1981,7 @@
     if (!list) { $('ed-error').textContent = 'Выберите другую дату или пару для переноса.'; return; }
     var btn = $('ed-save');
     btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
     $('ed-error').textContent = '';
     Api.save(list).then(function (saved) {
       var ids = saved.map(function (e) { return e.id; });
@@ -1977,7 +1994,7 @@
     }, function (err) {
       $('ed-error').textContent = err.message;
       if (!Api.user()) { renderAccount(); }
-    }).then(function () { btn.disabled = false; });
+    }).then(function () { btn.disabled = false; edSetKind(ed.kind); });
   }
   function removeEdit(id, after) {
     var e = EDITS.list.filter(function (x) { return x.id === id; })[0];
@@ -2069,7 +2086,7 @@
   function render() {
     resolvePendingHash();
     var td = new Date();
-    $('today-label').textContent = WEEKDAYS[td.getDay()][0].toUpperCase() + WEEKDAYS[td.getDay()].slice(1) + ', ' + td.getDate() + ' ' + MONTHS_GEN[td.getMonth()];
+    $('today-label').textContent = WEEKDAYS[td.getDay()][0].toUpperCase() + WEEKDAYS[td.getDay()].slice(1) + ', ' + fmtDayMonth(todayISO());
     $('term-label').textContent = termLabel();
     $('year').textContent = td.getFullYear();
     $('sysline').textContent = 'Системная информация: версия ' + SITE_VERSION + ' · ' + termLabel();
@@ -2101,7 +2118,31 @@
     else renderExams();
     savePrefs();
     writeUrl();
+    syncRoving();
   }
+  // ARIA tabs and radio groups: Tab reaches the chosen button, arrows move between the rest
+  var ROVE = '[role="tab"], [role="radio"]';
+  function syncRoving() {
+    Array.prototype.forEach.call(document.querySelectorAll('[role="tablist"], [role="radiogroup"]'), function (g) {
+      var items = Array.prototype.filter.call(g.querySelectorAll(ROVE), function (b) { return !b.hidden; });
+      var on = items.filter(function (b) { return b.getAttribute('aria-selected') === 'true' || b.getAttribute('aria-checked') === 'true'; })[0] || items[0];
+      items.forEach(function (b) { b.tabIndex = b === on ? 0 : -1; });
+    });
+  }
+  document.addEventListener('keydown', function (e) {
+    var keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+    var b = e.target.closest && e.target.closest(ROVE);
+    if (!b || keys.indexOf(e.key) < 0) return;
+    var g = b.closest('[role="tablist"], [role="radiogroup"]');
+    if (!g) return;
+    var items = Array.prototype.filter.call(g.querySelectorAll(ROVE), function (x) { return !x.hidden && !x.disabled; });
+    var i = items.indexOf(b), n = items.length;
+    var j = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + n) % n;
+    e.preventDefault();
+    items[j].click(); // the choice follows the focus
+    items[j].focus();
+    syncRoving();
+  });
   function renderWho() {
     $('group-field').hidden = state.mode !== 'group';
     $('teacher-field').hidden = state.mode !== 'teacher';
@@ -2203,6 +2244,7 @@
     e.preventDefault();
     var btn = $('login-submit');
     btn.disabled = true;
+    btn.textContent = 'Вхожу…';
     $('login-error').textContent = '';
     Api.login($('login-name').value.trim(), $('login-pass').value).then(function (u) {
       $('login-dialog').close();
@@ -2214,7 +2256,8 @@
     }, function (err) {
       var d = err.data || {};
       $('login-error').textContent = err.message + (d.attemptsLeft != null && d.attemptsLeft > 0 ? '. Осталось попыток: ' + d.attemptsLeft + '.' : '');
-    }).then(function () { btn.disabled = false; });
+      $('login-name').focus();
+    }).then(function () { btn.disabled = false; btn.textContent = 'Войти'; });
   });
   $('account-close').addEventListener('click', function () { $('account-dialog').close(); });
   $('account-logout').addEventListener('click', function () {
@@ -2236,12 +2279,18 @@
   $('pass-form').addEventListener('submit', function (e) {
     e.preventDefault();
     var next = $('pass-new').value;
-    if (next !== $('pass-again').value) { $('pass-error').textContent = 'Новый пароль и повтор не совпадают.'; return; }
-    if (next.length < 8) { $('pass-error').textContent = 'Новый пароль — не короче 8 символов.'; return; }
+    if (next !== $('pass-again').value) { $('pass-error').textContent = 'Новый пароль и повтор не совпадают.'; $('pass-again').focus(); return; }
+    if (next.length < 8) { $('pass-error').textContent = 'Новый пароль — не короче 8 символов.'; $('pass-new').focus(); return; }
+    var btn = $('pass-submit');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
     Api.password($('pass-old').value, next).then(function () {
       $('pass-dialog').close();
       toast('Пароль изменён.');
-    }, function (err) { $('pass-error').textContent = err.message; });
+    }, function (err) { $('pass-error').textContent = err.message; $('pass-old').focus(); }).then(function () {
+      btn.disabled = false;
+      btn.textContent = 'Сменить пароль';
+    });
   });
   $('theme-btn').addEventListener('click', function () { renderThemes(); $('theme-dialog').showModal(); });
   $('theme-list').addEventListener('click', function (e) {
@@ -2257,7 +2306,7 @@
   $('ed-save').addEventListener('click', edSave);
   $('ed-cancel').addEventListener('click', function () { $('edit-dialog').close(); });
   $('ed-remove').addEventListener('click', function () {
-    if (ed && ed.edit) removeEdit(ed.edit.id, function () { $('edit-dialog').close(); });
+    if (ed && ed.edit && confirm('Убрать правку? Пара снова пойдёт по основному расписанию.')) removeEdit(ed.edit.id, function () { $('edit-dialog').close(); });
   });
   document.querySelector('.views').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-view]');
@@ -2434,6 +2483,11 @@
     loadLists();
     loadGrafik();
     loadEdits();
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () {
+        document.documentElement.style.setProperty('--who-h', ($('who').offsetHeight + 16) + 'px');
+      }).observe($('who'));
+    }
     // keep "today" and the current pair fresh while the page stays open
     setInterval(function () { if (state.view === 'lessons' && !document.querySelector('dialog[open]')) render(); }, 60000);
     // new replacements from the admins show up without reloading the page

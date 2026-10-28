@@ -14,13 +14,14 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <a class="skip" href="#page-title">Перейти к расписанию</a>
   <header class="topbar">
     <div class="topbar-inner">
       <a class="brand" href="./" aria-label="ТехноПортал — на главную">
         <img src="logo.png" alt="Логотип Люберецкого техникума" width="62" height="48">
         <span class="brand-name">ГБПОУ МО<br>Люберецкий техникум<br>имени Героя Советского Союза,<br>лётчика-космонавта Ю. А. Гагарина</span>
       </a>
-      <div class="portal">ТехноПортал</div>
+      <div class="portal" translate="no">ТехноПортал</div>
       <div class="top-actions">
         <div class="sysinfo">
           <strong id="today-label"></strong>
@@ -39,7 +40,7 @@
 
   <div class="page">
     <div class="headline">
-      <h1 id="page-title">Расписание занятий</h1>
+      <h1 id="page-title" tabindex="-1">Расписание занятий</h1>
       <p class="lede" id="page-lede">Пары на каждую неделю семестра: для группы или для преподавателя.</p>
       <p class="stamp" id="stamp"></p>
       <p class="status" id="status" data-state="loading" role="status">
@@ -67,11 +68,11 @@
         </div>
         <div class="field f-entity" id="group-field">
           <label for="group">Группа</label>
-          <select id="group"></select>
+          <select id="group" name="group"></select>
         </div>
         <div class="field f-entity" id="teacher-field" hidden>
           <label for="teacher">Преподаватель</label>
-          <select id="teacher"></select>
+          <select id="teacher" name="teacher"></select>
         </div>
         <div class="field" id="half-field" hidden>
           <span class="label" id="half-label">Период</span>
@@ -81,7 +82,7 @@
             <button type="button" role="radio" data-value="0">Учебный год</button>
           </div>
         </div>
-        <label class="check" id="src-field" title="Под каждой парой: основная запись, замена или ручная правка, откуда она взята и когда изменена"><input type="checkbox" id="show-src"> Тип и источник записей</label>
+        <label class="check" id="src-field" title="Под каждой парой: основная запись, замена или ручная правка, откуда она взята и когда изменена"><input type="checkbox" id="show-src" name="show_sources"> Тип и источник записей</label>
         <div class="weeknav" id="weeknav" hidden>
           <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <div class="wk-text" aria-live="polite">
@@ -145,7 +146,7 @@
         <div class="filter-row">
           <div class="field f-search">
             <label for="e-search">Поиск</label>
-            <input type="search" id="e-search" placeholder="Дисциплина, преподаватель, аудитория" autocomplete="off">
+            <input type="search" id="e-search" name="search" placeholder="Дисциплина, преподаватель или аудитория…" autocomplete="off">
           </div>
           <button type="button" class="btn sheet-open" id="e-sheet-open" aria-controls="e-sheet" aria-expanded="false">Фильтры<span class="fcount" id="e-fcount"></span></button>
         </div>
@@ -169,11 +170,11 @@
             </div>
             <div class="field f-date">
               <label for="e-from">С</label>
-              <input type="date" id="e-from">
+              <input type="date" id="e-from" name="date_from">
             </div>
             <div class="field f-date">
               <label for="e-to">По</label>
-              <input type="date" id="e-to">
+              <input type="date" id="e-to" name="date_to">
             </div>
           </div>
           <div class="filter-row">
@@ -203,7 +204,7 @@
                 <button type="button" role="radio" data-value="2">2 полугодие</button>
               </div>
             </div>
-            <label class="check"><input type="checkbox" id="e-inlist"> Пересдачи и в общем списке</label>
+            <label class="check"><input type="checkbox" id="e-inlist" name="retakes_in_list"> Пересдачи и в общем списке</label>
           </div>
           <div class="filter-row favs">
             <span class="label">Избранные фильтры</span>
@@ -259,7 +260,7 @@
         <form method="dialog" id="fav-form">
           <h2 id="fav-title">Сохранить фильтры</h2>
           <label class="field" for="fav-name"><span class="label">Название набора</span>
-            <input type="text" id="fav-name" maxlength="40" placeholder="Например, Экзамены ИС2-25" required>
+            <input type="text" id="fav-name" name="favourite_name" maxlength="40" placeholder="Например, Экзамены ИС2-25…" autocomplete="off" required>
           </label>
           <div class="dlg-actions">
             <button type="button" class="btn btn-quiet" id="fav-cancel">Отмена</button>
@@ -274,7 +275,7 @@
         <div class="filter-row">
           <div class="field f-entity">
             <label for="h-group">Группа</label>
-            <select id="h-group"><option value="">Все группы</option></select>
+            <select id="h-group" name="group_filter"><option value="">Все группы</option></select>
           </div>
           <div class="field">
             <span class="label" id="h-type-label">Тип записи</span>
@@ -306,8 +307,8 @@
       <h2 id="login-title">Вход для администратора</h2>
       <p class="hint">После входа у каждой пары появится карандаш. Замены, отмены и переносы сразу увидят все, кто открыл расписание.</p>
       <p class="hint demo-note" id="login-demo" hidden>Демо-режим: логин demo, пароль demo. Правки сохраняются только в этом браузере.</p>
-      <label class="field"><span class="label">Логин</span><input type="text" id="login-name" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
-      <label class="field"><span class="label">Пароль</span><input type="password" id="login-pass" autocomplete="current-password" required></label>
+      <label class="field"><span class="label">Логин</span><input type="text" id="login-name" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+      <label class="field"><span class="label">Пароль</span><input type="password" id="login-pass" name="password" autocomplete="current-password" required></label>
       <p class="error" id="login-error" role="alert"></p>
       <div class="dlg-actions">
         <button type="button" class="btn btn-quiet" id="login-cancel">Отмена</button>
@@ -332,13 +333,13 @@
   <dialog class="dlg" id="pass-dialog" aria-labelledby="pass-title">
     <form id="pass-form" novalidate>
       <h2 id="pass-title">Смена пароля</h2>
-      <label class="field"><span class="label">Текущий пароль</span><input type="password" id="pass-old" autocomplete="current-password" required></label>
-      <label class="field"><span class="label">Новый пароль, не короче 8 символов</span><input type="password" id="pass-new" autocomplete="new-password" minlength="8" required></label>
-      <label class="field"><span class="label">Новый пароль ещё раз</span><input type="password" id="pass-again" autocomplete="new-password" minlength="8" required></label>
+      <label class="field"><span class="label">Текущий пароль</span><input type="password" id="pass-old" name="current_password" autocomplete="current-password" required></label>
+      <label class="field"><span class="label">Новый пароль, не короче 8 символов</span><input type="password" id="pass-new" name="new_password" autocomplete="new-password" minlength="8" required></label>
+      <label class="field"><span class="label">Новый пароль ещё раз</span><input type="password" id="pass-again" name="new_password_again" autocomplete="new-password" minlength="8" required></label>
       <p class="error" id="pass-error" role="alert"></p>
       <div class="dlg-actions">
         <button type="button" class="btn btn-quiet" id="pass-cancel">Отмена</button>
-        <button type="submit" class="btn btn-primary">Сменить пароль</button>
+        <button type="submit" class="btn btn-primary" id="pass-submit">Сменить пароль</button>
       </div>
     </form>
   </dialog>
@@ -349,7 +350,7 @@
       <p class="hint" id="ed-now"></p>
       <div class="field" id="ed-group-field">
         <label for="ed-group">Группа</label>
-        <select id="ed-group"></select>
+        <select id="ed-group" name="edit_group"></select>
       </div>
       <div class="field">
         <span class="label" id="ed-kind-label">Что сделать</span>
@@ -362,23 +363,23 @@
       </div>
       <div class="field" id="ed-slot-field">
         <label for="ed-slot">Время</label>
-        <select id="ed-slot"></select>
+        <select id="ed-slot" name="edit_slot"></select>
       </div>
       <div class="row2" id="ed-move" hidden>
-        <div class="field"><label for="ed-move-date">Перенести на дату</label><input type="date" id="ed-move-date"></div>
-        <div class="field"><label for="ed-move-slot">Время</label><select id="ed-move-slot"></select></div>
+        <div class="field"><label for="ed-move-date">Перенести на дату</label><input type="date" id="ed-move-date" name="move_date"></div>
+        <div class="field"><label for="ed-move-slot">Время</label><select id="ed-move-slot" name="move_slot"></select></div>
       </div>
       <div class="row2" id="ed-fields">
-        <div class="field f-full"><label for="ed-disc">Дисциплина</label><input type="text" id="ed-disc" list="dl-disc" autocomplete="off"></div>
-        <div class="field"><label for="ed-teacher">Преподаватель</label><input type="text" id="ed-teacher" list="dl-teacher" autocomplete="off"></div>
-        <div class="field"><label for="ed-room">Аудитория</label><input type="text" id="ed-room" list="dl-room" autocomplete="off"></div>
+        <div class="field f-full"><label for="ed-disc">Дисциплина</label><input type="text" id="ed-disc" name="discipline" list="dl-disc" autocomplete="off"></div>
+        <div class="field"><label for="ed-teacher">Преподаватель</label><input type="text" id="ed-teacher" name="teacher_name" list="dl-teacher" autocomplete="off"></div>
+        <div class="field"><label for="ed-room">Аудитория</label><input type="text" id="ed-room" name="room" list="dl-room" autocomplete="off"></div>
       </div>
       <div class="row2">
         <div class="field">
           <label for="ed-sub">Для кого</label>
-          <select id="ed-sub"><option value="0">Вся группа</option><option value="1">1 подгруппа</option><option value="2">2 подгруппа</option></select>
+          <select id="ed-sub" name="subgroup"><option value="0">Вся группа</option><option value="1">1 подгруппа</option><option value="2">2 подгруппа</option></select>
         </div>
-        <div class="field"><label for="ed-note">Причина, её видят все</label><input type="text" id="ed-note" maxlength="200" placeholder="Например, преподаватель на больничном"></div>
+        <div class="field"><label for="ed-note">Причина, её видят все</label><input type="text" id="ed-note" name="reason" maxlength="200" placeholder="Например, преподаватель на больничном…" autocomplete="off"></div>
       </div>
       <p class="error" id="ed-error" role="alert"></p>
       <div class="dlg-actions">
