@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.3';
+  var SITE_VERSION = '3.4';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -2375,17 +2375,17 @@
       var item = { s: sj, f: f, hours: half === 1 ? sj.s1 : sj.s2, rec: findExam(g, sj.name, half) };
       if (f === 'Э') exams.push(item); else if (f === 'ДЗ' || f === 'З' || f === 'ЗаО') credits.push(item);
     });
-    function page(title, list, gradeLabel) {
+    function page(title, list) {
       return '<section class="book-page"><h3>' + esc(title) + '</h3>' + (list.length ? '<table class="book-table"><thead><tr><th scope="col">№</th><th scope="col">Дисциплина</th><th scope="col" class="n">Часов</th>' +
-        '<th scope="col">' + gradeLabel + '</th><th scope="col">Дата</th><th scope="col">Преподаватель</th></tr></thead><tbody>' + list.map(function (it, i) {
+        '<th scope="col">Дата</th><th scope="col">Преподаватель</th></tr></thead><tbody>' + list.map(function (it, i) {
           return '<tr><td class="n">' + (i + 1) + '</td><td>' + discHTML(it.s.name) + (it.f !== 'Э' ? ' <abbr class="hint" title="' + esc(Hours.FORM_NAMES[it.f] || '') + '">' + esc(it.f) + '</abbr>' : '') + '</td>' +
-            '<td class="n">' + (it.hours || '—') + '</td><td class="grade"></td><td>' + examWhen(it.rec) + '</td><td>' + esc(it.s.teacher || '—') + '</td></tr>';
+            '<td class="n">' + (it.hours || '—') + '</td><td>' + examWhen(it.rec) + '</td><td>' + esc(it.s.teacher || '—') + '</td></tr>';
         }).join('') + '</tbody></table>' : '<p class="hint">В этом семестре по плану нет.</p>') + '</section>';
     }
     box.innerHTML = controls + '<div class="book" aria-label="Разворот зачётной книжки">' +
       '<div class="book-cap"><strong>Зачётная книжка</strong><span>Группа <span translate="no">' + esc(g) + '</span>' + (plan.title ? ', ' + esc(plan.title) : '') + ', ' + half + ' семестр ' + esc(GRAFIK.data ? GRAFIK.data.title.replace(/^.*?(\d{4}\/\d{4}).*$/, '$1') : '') + '</span></div>' +
-      page('Экзамены', exams, 'Оценка') + page('Зачёты и дифференцированные зачёты', credits, 'Отметка') + '</div>' +
-      '<p class="hint">Список и часы — по учебному плану группы (лист «' + esc(CFG.planSheet) + '»), даты — по расписанию экзаменов. Оценки ставит преподаватель в ведомости и бумажной зачётке. Контрольные работы в зачётку не вносятся.</p>';
+      page('Экзамены', exams) + page('Зачёты и дифференцированные зачёты', credits) + '</div>' +
+      '<p class="hint">Список и часы — по учебному плану группы (лист «' + esc(CFG.planSheet) + '»), даты — по расписанию экзаменов. Контрольные работы в зачётку не вносятся.</p>';
   }
   function renderTeacherExams() {
     var box = $('ex-teacher'), t = state.exTeacher || state.teacher;

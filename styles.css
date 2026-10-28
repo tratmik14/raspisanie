@@ -877,14 +877,12 @@ input[type="file"] { padding: 8px 0; }
 .book-table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; table-layout: fixed; }
 .book-table th:nth-child(1) { width: 2.2em; }
 .book-table th:nth-child(3) { width: 3.8em; }
-.book-table th:nth-child(4) { width: 4.8em; }
-.book-table th:nth-child(5) { width: 7.6em; }
-.book-table th:nth-child(6) { width: 9.6em; }
+.book-table th:nth-child(4) { width: 7.6em; }
+.book-table th:nth-child(5) { width: 9.6em; }
 .book-table td { overflow-wrap: break-word; }
 .book-table th { text-align: left; font-size: .75rem; color: var(--fg-3); font-weight: 700; padding: 4px 6px; border-bottom: 1.5px solid var(--line-strong); }
 .book-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .book-table .n { text-align: right; width: 1%; white-space: nowrap; }
-.book-table .grade { min-width: 70px; border-bottom: 1.5px dashed var(--line-strong); }
 @media (max-width: 1179px) {
   .book { grid-template-columns: minmax(0, 1fr); }
   .book::after { display: none; }
@@ -899,7 +897,6 @@ input[type="file"] { padding: 8px 0; }
   .book-table td { border: 0; padding: 1px 0; }
   .book-table td:nth-child(n+3) { grid-column: 2; }
   .book-table .n { text-align: left; }
-  .book-table .grade { display: none; }
 }
 
 /* Inside ТехноПортал (?embed=1): no own top bar and footer, the portal has them */
