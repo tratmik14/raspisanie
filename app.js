@@ -15,11 +15,12 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '2.0';
+  var SITE_VERSION = '2.1';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
   var EDITS_KEY = 'raspisanie.edits.v1';
+  var SOURCES_KEY = 'raspisanie.sources.v1';
   var VIEWS = ['lessons', 'hours', 'grafik', 'exams', 'history'];
   var VIEW_TITLES = {
     lessons: ['Расписание занятий', 'Пары на каждую неделю семестра: для группы или для преподавателя.'],
@@ -390,6 +391,9 @@
   // the PDF schedule parsed into data/grafik.json
   var GRAFIK = { status: 'loading', data: null };
   var HIST = { status: 'idle', items: [], full: false, group: '' };
+  var histType = 'all'; // the record-type filter of the changes view
+  var showSrc = false;  // show the type, source and change time under every lesson
+  try { showSrc = localStorage.getItem(SOURCES_KEY) === '1'; } catch (e) { /* storage unavailable */ }
 
   function applyGroupList(csv) {
     var seen = {}, groups = [];
@@ -919,6 +923,47 @@
     });
     return order.map(function (k) { return map[k]; }).sort(function (a, b) { return (a.sub || 0) - (b.sub || 0) || (a.cancelled || a.away ? 1 : 0) - (b.cancelled || b.away ? 1 : 0); });
   }
+  // ---------- record type, source and change time ----------
+  // «Основная» — пара из Google-таблицы; «Замена» — администратор поставил вместо неё другую;
+  // «Ручная правка» — администратор добавил, отменил или перенёс пару.
+  var REC_TYPES = { main: 'Основная', replace: 'Замена', manual: 'Ручная правка' };
+  function recordType(edit) {
+    if (!edit) return 'main';
+    return edit.kind === 'replace' && !edit.link ? 'replace' : 'manual';
+  }
+  function editTime(e) { var t = Date.parse(e.updated || e.created || ''); return isNaN(t) ? 0 : t; }
+  function typeTag(type) { return '<span class="rt rt-' + type + '">' + REC_TYPES[type] + '</span>'; }
+  // entry: { edit, groups } — a lesson card entry or an edit wrapped the same way
+  function sourceInfo(entry) {
+    if (!entry.edit) {
+      var sheets = entry.groups.map(function (g) { return DB.sheets[g]; }).filter(Boolean);
+      var at = sheets.reduce(function (a, s) { return Math.max(a, s.at || 0); }, 0);
+      var cached = sheets.some(function (s) { return s.source === 'cache'; });
+      return {
+        type: 'main',
+        source: 'Google-таблица расписания, ' + (entry.groups.length > 1 ? 'листы ' : 'лист ') + entry.groups.map(function (g) { return '«' + g + '»'; }).join(', '),
+        time: at ? (cached ? 'сохранённая копия от ' : 'загружено ') + fmtStamp(at) : ''
+      };
+    }
+    var e = entry.edit, t = editTime(e);
+    var what = e.link ? 'перенос' : e.kind === 'cancel' ? 'отмена' : e.kind === 'add' ? 'новая пара' : 'замена';
+    return {
+      type: recordType(e),
+      source: 'админка сайта, ' + what + (e.authorName ? ', ' + e.authorName : ''),
+      time: t ? 'изменено ' + fmtStamp(t) : ''
+    };
+  }
+  function sourceHTML(entry) {
+    var s = sourceInfo(entry);
+    return '<p class="src">' + typeTag(s.type) + '<span>' + esc(cap(s.source)) + (s.time ? ', ' + esc(s.time) : '') + '</span></p>';
+  }
+  // the journal keeps the type since this version; older rows get it from the saved snapshot
+  function historyType(h) {
+    if (h.type) return h.type === 'замена' ? 'replace' : 'manual';
+    var o = null;
+    try { o = JSON.parse(h.after || h.before || 'null'); } catch (e) { o = null; }
+    return o ? recordType(o) : 'manual';
+  }
   function wasText(was) {
     return uniq(was.map(function (r) { return splitCode(r.disc).name + (r.teacher ? ', ' + r.teacher : '') + (r.room ? ', ' + roomLabel(r.room) : ''); })).join('; ');
   }
@@ -938,7 +983,7 @@
     }
     var disc = e.disc ? '<p class="disc">' + discHTML(e.disc) + '</p>' : '';
     return '<div class="' + cls + '">' + (flag ? '<span class="flag">' + esc(flag) + '</span>' : '') + disc +
-      (meta.length ? '<p class="meta">' + meta.join('') + '</p>' : '') + (note ? '<p class="was">' + esc(note) + '</p>' : '') + '</div>';
+      (meta.length ? '<p class="meta">' + meta.join('') + '</p>' : '') + (note ? '<p class="was">' + esc(note) + '</p>' : '') + (showSrc ? sourceHTML(e) : '') + '</div>';
   }
   var PENCIL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
   var PLUS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
@@ -1405,7 +1450,10 @@
         '<p class="hint">Для администратора: сервер правок ещё не подключён. Как подключить, написано в README.md, раздел «Админка».</p></div>';
       return;
     }
-    var list = EDITS.list.filter(function (e) { return !want || e.group === want; });
+    Array.prototype.forEach.call($('h-type').querySelectorAll('button'), function (b) {
+      b.setAttribute('aria-checked', b.getAttribute('data-value') === histType ? 'true' : 'false');
+    });
+    var list = EDITS.list.filter(function (e) { return (!want || e.group === want) && (histType === 'all' || recordType(e) === histType); });
     var upcoming = list.filter(function (e) { return e.date >= today; }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : minutesOf(a.start) - minutesOf(b.start); });
     var past = list.filter(function (e) { return e.date < today; }).sort(function (a, b) { return a.date > b.date ? -1 : 1; });
     function editCard(e) {
@@ -1413,7 +1461,8 @@
       var now = e.kind === 'cancel' ? 'Пары не будет' : [splitCode(e.disc).name, e.teacher, e.room ? roomLabel(e.room) : '', e.sub ? e.sub + ' подгруппа' : ''].filter(Boolean).join(', ');
       return '<li class="change k-' + e.kind + '"><div class="change-when"><strong>' + esc(cap(WEEKDAYS[isoToDate(e.date).getDay()])) + ', ' + esc(fmtDayMonth(e.date)) + '</strong><span>' + esc(slotLabel(e.start)) + '</span></div>' +
         '<div class="change-what"><p><span class="grp">' + esc(e.group) + '</span> <span class="badge b-' + e.kind + '">' + KIND_LABEL[e.kind] + '</span></p>' +
-        '<p class="change-now">' + esc(now) + '</p>' + (was ? '<p class="was">Было: ' + esc(was) + '</p>' : '') + (e.note ? '<p class="was">Причина: ' + esc(e.note) + '</p>' : '') + '</div>' +
+        '<p class="change-now">' + esc(now) + '</p>' + (was ? '<p class="was">Было: ' + esc(was) + '</p>' : '') + (e.note ? '<p class="was">Причина: ' + esc(e.note) + '</p>' : '') +
+        sourceHTML({ edit: e, groups: [e.group] }) + '</div>' +
         (admin ? '<div class="change-act"><button type="button" class="btn btn-small" data-open-edit="' + esc(e.id) + '">Изменить</button><button type="button" class="btn btn-quiet btn-small" data-remove-edit="' + esc(e.id) + '">Убрать</button></div>' : '') + '</li>';
     }
     var html = '';
@@ -1423,7 +1472,7 @@
     html += '<section class="tablebox"><div class="table-head"><h2>Ближайшие замены и отмены</h2><span class="count">' + count(upcoming.length, 'правка', 'правки', 'правок') + '</span></div>' +
       (upcoming.length ? '<ol class="changes">' + upcoming.map(editCard).join('') + '</ol>' : '<p class="pad">На ближайшие дни изменений нет: пары идут по основному расписанию.</p>') + '</section>';
     if (past.length) html += '<details class="tablebox past-edits"><summary>Прошедшие правки (' + past.length + ')</summary><ol class="changes">' + past.map(editCard).join('') + '</ol></details>';
-    var items = HIST.items.filter(function (h) { return !want || h.group === want; });
+    var items = HIST.items.filter(function (h) { return (!want || h.group === want) && (histType === 'all' || historyType(h) === histType); });
     html += '<section class="tablebox"><div class="table-head"><h2>Журнал правок</h2><span class="count">' +
       (HIST.status === 'loading' ? 'загружаю…' : HIST.status === 'error' ? 'не загрузился' : count(items.length, 'запись', 'записи', 'записей')) + '</span>' +
       (HIST.status === 'error' ? '<button type="button" class="btn btn-small" data-history-retry>Повторить</button>' : '') + '</div>';
@@ -1432,7 +1481,7 @@
         var before = snapText(h.before), after = snapText(h.after);
         var t = new Date(h.time);
         return '<li><time datetime="' + esc(h.time) + '">' + esc(isNaN(t) ? h.time : fmtStamp(t.getTime())) + '</time>' +
-          '<p><strong>' + esc(ACTION_LABEL[h.action] || h.action) + '</strong>' + (h.name ? ', ' + esc(h.name) : '') + '. <span class="grp">' + esc(h.group) + '</span> ' +
+          '<p>' + typeTag(historyType(h)) + ' <strong>' + esc(ACTION_LABEL[h.action] || h.action) + '</strong>' + (h.name ? ', ' + esc(h.name) : '') + '. <span class="grp">' + esc(h.group) + '</span> ' +
           esc(fmtDayMonth(h.date)) + ', ' + esc(slotLabel(h.start)) + '.</p>' +
           (before ? '<p class="was">Было: ' + esc(before) + '</p>' : '') + (after ? '<p class="change-now">Стало: ' + esc(after) + '</p>' : '') +
           (h.comment ? '<p class="was">Комментарий: ' + esc(h.comment) + '</p>' : '') + '</li>';
@@ -2062,6 +2111,8 @@
       b.setAttribute('aria-checked', b.getAttribute('data-value') === state.mode ? 'true' : 'false');
     });
     if (state.view !== 'lessons') $('weeknav').hidden = true;
+    $('src-field').hidden = state.view !== 'lessons';
+    $('show-src').checked = showSrc;
   }
 
   // ---------- events ----------
@@ -2135,6 +2186,15 @@
     } else if (confirm('Убрать правку? Пара ' + fmtDayMonth(ed0.date) + ' у группы ' + ed0.group + ' снова пойдёт по основному расписанию.')) removeEdit(id);
   });
   $('h-group').addEventListener('change', function (e) { HIST.group = e.target.value; render(); });
+  $('h-type').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (b) { histType = b.getAttribute('data-value'); render(); }
+  });
+  $('show-src').addEventListener('change', function (e) {
+    showSrc = e.target.checked;
+    try { localStorage.setItem(SOURCES_KEY, showSrc ? '1' : '0'); } catch (err) { /* storage unavailable */ }
+    render();
+  });
   $('h-empty-action').addEventListener('click', retry);
 
   $('account-btn').addEventListener('click', function () { if (Api.user()) openAccount(); else openLogin(); });
@@ -2150,6 +2210,7 @@
       render();
       if (state.view === 'history') loadHistory(true);
       toast('Вы вошли как ' + u.name + '. Нажмите на карандаш у пары, чтобы изменить её.');
+      loadEdits();
     }, function (err) {
       var d = err.data || {};
       $('login-error').textContent = err.message + (d.attemptsLeft != null && d.attemptsLeft > 0 ? '. Осталось попыток: ' + d.attemptsLeft + '.' : '');
@@ -2162,6 +2223,7 @@
       HIST.status = 'idle';
       render();
       toast('Вы вышли из режима администратора.');
+      loadEdits();
     });
   });
   $('account-password').addEventListener('click', function () {

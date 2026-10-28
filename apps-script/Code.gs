@@ -14,10 +14,10 @@
 
 var VERSION = '1.0';
 var SHEETS = { edits: 'Правки', history: 'История', admins: 'Админы' };
-var EDIT_COLS = ['id', 'created', 'updated', 'author', 'status', 'group', 'date', 'start', 'end', 'kind', 'disc', 'teacher', 'room', 'sub', 'note', 'was', 'link'];
-var EDIT_HEAD = ['ID', 'Создано', 'Изменено', 'Автор', 'Статус', 'Группа', 'Дата', 'Начало', 'Конец', 'Вид', 'Дисциплина', 'Преподаватель', 'Аудитория', 'Подгруппа', 'Комментарий', 'Было (JSON)', 'Связь'];
-var HISTORY_COLS = ['id', 'time', 'login', 'name', 'action', 'editId', 'group', 'date', 'start', 'before', 'after', 'comment'];
-var HISTORY_HEAD = ['ID', 'Время', 'Логин', 'Имя', 'Действие', 'ID правки', 'Группа', 'Дата', 'Начало', 'Было (JSON)', 'Стало (JSON)', 'Комментарий'];
+var EDIT_COLS = ['id', 'created', 'updated', 'author', 'status', 'group', 'date', 'start', 'end', 'kind', 'disc', 'teacher', 'room', 'sub', 'note', 'was', 'link', 'type'];
+var EDIT_HEAD = ['ID', 'Создано', 'Изменено', 'Автор', 'Статус', 'Группа', 'Дата', 'Начало', 'Конец', 'Вид', 'Дисциплина', 'Преподаватель', 'Аудитория', 'Подгруппа', 'Комментарий', 'Было (JSON)', 'Связь', 'Тип записи'];
+var HISTORY_COLS = ['id', 'time', 'login', 'name', 'action', 'editId', 'group', 'date', 'start', 'before', 'after', 'comment', 'type'];
+var HISTORY_HEAD = ['ID', 'Время', 'Логин', 'Имя', 'Действие', 'ID правки', 'Группа', 'Дата', 'Начало', 'Было (JSON)', 'Стало (JSON)', 'Комментарий', 'Тип записи'];
 var ADMIN_COLS = ['login', 'name', 'role', 'salt', 'hash', 'created', 'lastLogin', 'active'];
 var ADMIN_HEAD = ['Логин', 'Имя', 'Роль', 'Соль', 'Хэш пароля', 'Создан', 'Последний вход', 'Активен'];
 var KINDS = { replace: 'Замена', cancel: 'Отмена', add: 'Добавлена' };
@@ -40,7 +40,7 @@ function route(req) {
   try {
     switch (String(req.action || 'ping')) {
       case 'ping': return { ok: true, version: VERSION, admins: readAdmins().filter(isActive).length };
-      case 'edits': return { ok: true, edits: readEdits().filter(function (e) { return e.status === 'active'; }), at: Date.now() };
+      case 'edits': return listEdits(req);
       case 'history': return history(req);
       case 'login': return login(req);
       case 'logout': return logout(req);
@@ -190,13 +190,28 @@ function publicEdit(e) {
   return o;
 }
 function snapshot(e) {
-  return e ? JSON.stringify({ kind: e.kind, disc: e.disc, teacher: e.teacher, room: e.room, sub: e.sub, note: e.note, status: e.status }) : '';
+  return e ? JSON.stringify({ kind: e.kind, disc: e.disc, teacher: e.teacher, room: e.room, sub: e.sub, note: e.note, status: e.status, link: e.link || '' }) : '';
 }
+// Тип записи: «замена» — пару заменили другой; «ручная правка» — пару добавили, отменили или перенесли.
+// Записи основного расписания («основная») живут в таблице колледжа и сюда не попадают.
+function recordType(e) { return e.kind === 'replace' && !e.link ? 'замена' : 'ручная правка'; }
 function logChange(user, action, edit, before, after, comment) {
   writeRow(SHEETS.history, HISTORY_COLS, HISTORY_HEAD, {
     id: newId('h'), time: nowIso(), login: user.login, name: user.name, action: action, editId: edit.id,
-    group: edit.group, date: edit.date, start: edit.start, before: before, after: after, comment: comment || ''
+    group: edit.group, date: edit.date, start: edit.start, before: before, after: after, comment: comment || '', type: recordType(edit)
   });
+}
+// Everyone gets the active edits; who made each one only goes to signed-in admins.
+function listEdits(req) {
+  var u = session(req), names = {};
+  if (u) readAdmins().forEach(function (a) { names[a.login] = a.name || a.login; });
+  var edits = readEdits().filter(function (e) { return e.status === 'active'; }).map(function (e) {
+    var o = publicEdit(e);
+    if (u) o.authorName = names[o.author] || o.author;
+    else delete o.author;
+    return o;
+  });
+  return { ok: true, edits: edits, at: Date.now(), full: !!u };
 }
 // One active edit per slot: saving onto a slot that already has one updates it.
 function save(req) {
@@ -222,13 +237,13 @@ function save(req) {
         var next = publicEdit(cur);
         ['group', 'date', 'start', 'end', 'kind', 'disc', 'teacher', 'room', 'sub', 'note', 'link'].forEach(function (k) { next[k] = it[k]; });
         if (it.was) next.was = it.was;
-        next.status = 'active'; next.updated = now; next.author = user.login;
+        next.status = 'active'; next.updated = now; next.author = user.login; next.type = recordType(next);
         writeRow(SHEETS.edits, EDIT_COLS, EDIT_HEAD, next, row);
         logChange(user, before ? 'update' : 'create', next, before, snapshot(next), req.comment);
         saved.push(next);
       } else {
         var e = publicEdit(it);
-        e.id = newId('e'); e.created = now; e.updated = now; e.author = user.login; e.status = 'active';
+        e.id = newId('e'); e.created = now; e.updated = now; e.author = user.login; e.status = 'active'; e.type = recordType(e);
         writeRow(SHEETS.edits, EDIT_COLS, EDIT_HEAD, e);
         all.push(e);
         logChange(user, 'create', e, '', snapshot(e), req.comment);
@@ -236,7 +251,7 @@ function save(req) {
       }
     });
   } finally { lock.releaseLock(); }
-  return { ok: true, edits: saved };
+  return { ok: true, edits: saved.map(function (e) { e = publicEdit(e); e.authorName = user.name; return e; }) };
 }
 // Removing an edit brings back the lesson from the main timetable; the row stays as «deleted».
 function remove(req) {
@@ -272,7 +287,7 @@ function history(req) {
     .filter(function (h) { return !group || h.group === group; })
     .slice(-limit).reverse()
     .map(function (h) {
-      var o = { id: h.id, time: h.time, action: h.action, editId: h.editId, group: h.group, date: h.date, start: h.start, before: h.before, after: h.after, comment: h.comment };
+      var o = { id: h.id, time: h.time, action: h.action, editId: h.editId, group: h.group, date: h.date, start: h.start, before: h.before, after: h.after, comment: h.comment, type: h.type };
       if (u) { o.login = h.login; o.name = h.name; }
       return o;
     });

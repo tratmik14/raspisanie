@@ -81,6 +81,7 @@
             <button type="button" role="radio" data-value="0">Учебный год</button>
           </div>
         </div>
+        <label class="check" id="src-field" title="Под каждой парой: основная запись, замена или ручная правка, откуда она взята и когда изменена"><input type="checkbox" id="show-src"> Тип и источник записей</label>
         <div class="weeknav" id="weeknav" hidden>
           <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <div class="wk-text" aria-live="polite">
@@ -274,6 +275,14 @@
           <div class="field f-entity">
             <label for="h-group">Группа</label>
             <select id="h-group"><option value="">Все группы</option></select>
+          </div>
+          <div class="field">
+            <span class="label" id="h-type-label">Тип записи</span>
+            <div class="seg" id="h-type" role="radiogroup" aria-labelledby="h-type-label">
+              <button type="button" role="radio" data-value="all">Все</button>
+              <button type="button" role="radio" data-value="replace">Замены</button>
+              <button type="button" role="radio" data-value="manual">Ручные правки</button>
+            </div>
           </div>
         </div>
       </section>

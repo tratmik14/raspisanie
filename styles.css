@@ -563,6 +563,15 @@ select:hover, input:hover { border-color: var(--primary); }
 .entry.is-cancelled .flag, .entry.is-away .flag { background: var(--danger-soft); color: var(--danger); }
 .entry.is-cancelled .disc, .entry.is-cancelled .meta, .entry.is-away .disc, .entry.is-away .meta { text-decoration: line-through; opacity: .7; }
 
+/* Record type, source and change time */
+.src { margin: 6px 0 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: .8125rem; color: var(--fg-3); overflow-wrap: anywhere; }
+.rt { display: inline-block; font-size: .75rem; font-weight: 800; padding: 0 8px; border-radius: 999px; line-height: 1.7; white-space: nowrap; }
+.rt-main { box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--fg-2); }
+.rt-replace { background: var(--change-soft); color: var(--change); }
+.rt-manual { background: var(--secondary-soft); color: var(--secondary); }
+.log .rt { vertical-align: 1px; }
+#src-field { min-height: 38px; font-size: .9375rem; }
+
 /* Group picker */
 .picker { display: grid; gap: 18px; }
 .picker h2 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 1.25rem; }

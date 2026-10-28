@@ -49,10 +49,11 @@
   var DEMO_USER = { login: 'demo', name: 'Демо-администратор', role: 'главный' };
   function demoId(p) { return p + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
   function slotKey(e) { return [e.group, e.date, e.start, e.sub || 0].join('|'); }
-  function snapshot(e) { return e ? JSON.stringify({ kind: e.kind, disc: e.disc, teacher: e.teacher, room: e.room, sub: e.sub, note: e.note, status: e.status }) : ''; }
+  function snapshot(e) { return e ? JSON.stringify({ kind: e.kind, disc: e.disc, teacher: e.teacher, room: e.room, sub: e.sub, note: e.note, status: e.status, link: e.link || '' }) : ''; }
+  function recordType(e) { return e.kind === 'replace' && !e.link ? 'замена' : 'ручная правка'; }
   function demoLog(action, e, before, after, comment) {
     var h = readJSON(DEMO_HISTORY, []);
-    h.push({ id: demoId('h'), time: new Date().toISOString(), login: DEMO_USER.login, name: DEMO_USER.name, action: action, editId: e.id, group: e.group, date: e.date, start: e.start, before: before, after: after, comment: comment || '' });
+    h.push({ id: demoId('h'), time: new Date().toISOString(), login: DEMO_USER.login, name: DEMO_USER.name, action: action, editId: e.id, group: e.group, date: e.date, start: e.start, before: before, after: after, comment: comment || '', type: recordType(e) });
     writeJSON(DEMO_HISTORY, h.slice(-1000));
   }
   function demoClean(e) {
@@ -70,7 +71,11 @@
     return out;
   }
   var demoServer = {
-    edits: function () { return { ok: true, edits: readJSON(DEMO_EDITS, []).filter(function (e) { return e.status === 'active'; }), at: Date.now() }; },
+    edits: function () {
+      var list = readJSON(DEMO_EDITS, []).filter(function (e) { return e.status === 'active'; });
+      list.forEach(function (e) { e.authorName = DEMO_USER.name; });
+      return { ok: true, edits: list, at: Date.now(), full: true };
+    },
     login: function (b) {
       if (String(b.login).trim().toLowerCase() !== 'demo' || b.password !== 'demo') return { ok: false, error: 'В демо-режиме логин demo и пароль demo' };
       return { ok: true, token: demoId('t'), user: DEMO_USER, expires: Date.now() + 6 * 3600e3 };
@@ -86,18 +91,18 @@
           var before = cur.status === 'active' ? snapshot(cur) : '';
           ['group', 'date', 'start', 'end', 'kind', 'disc', 'teacher', 'room', 'sub', 'note', 'link'].forEach(function (k) { cur[k] = it[k]; });
           if (it.was) cur.was = it.was;
-          cur.status = 'active'; cur.updated = now; cur.author = DEMO_USER.login;
+          cur.status = 'active'; cur.updated = now; cur.author = DEMO_USER.login; cur.type = recordType(cur);
           demoLog(before ? 'update' : 'create', cur, before, snapshot(cur), b.comment);
           saved.push(cur);
         } else {
-          it.id = demoId('e'); it.created = now; it.updated = now; it.author = DEMO_USER.login; it.status = 'active';
+          it.id = demoId('e'); it.created = now; it.updated = now; it.author = DEMO_USER.login; it.status = 'active'; it.type = recordType(it);
           all.push(it);
           demoLog('create', it, '', snapshot(it), b.comment);
           saved.push(it);
         }
       });
       writeJSON(DEMO_EDITS, all);
-      return { ok: true, edits: saved };
+      return { ok: true, edits: saved.map(function (e) { return Object.assign({ authorName: DEMO_USER.name }, e); }) };
     },
     remove: function (b) {
       var all = readJSON(DEMO_EDITS, []), ids = b.ids || [], links = {}, removed = [];
@@ -137,7 +142,8 @@
   window.RaspApi = {
     mode: mode,
     user: function () { return session ? session.user : null; },
-    loadEdits: function () { return call('edits', {}, true).then(function (r) { return r.edits || []; }); },
+    // with a session the server also says who made each edit, so the token goes along
+    loadEdits: function () { return call('edits', withToken({}), !session).then(function (r) { return r.edits || []; }); },
     login: function (login, password) {
       return call('login', { login: login, password: password }).then(function (r) {
         setSession({ token: r.token, user: r.user, expires: r.expires, mode: mode });
