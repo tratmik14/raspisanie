@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.2';
+  var SITE_VERSION = '3.3';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -47,9 +47,9 @@
   var Api = window.RaspApi;
   var Hours = window.RaspHours;
   function exDefaults() {
-    return { group: [], teacher: [], disc: [], type: 'all', status: 'all', half: 'all', inList: false, from: '', to: '', search: '', ordering: '', page: 1, pageSize: 20, rpage: 1 };
+    return { group: [], teacher: [], disc: [], type: 'exam', status: 'all', half: 'all', from: '', to: '', search: '', ordering: '', page: 1, pageSize: 20, rpage: 1 };
   }
-  var EX_FILTER_KEYS = ['group', 'teacher', 'disc', 'type', 'status', 'half', 'inList', 'from', 'to', 'search'];
+  var EX_FILTER_KEYS = ['group', 'teacher', 'disc', 'type', 'status', 'half', 'from', 'to', 'search'];
 
   function $(id) { return document.getElementById(id); }
 
@@ -396,8 +396,10 @@
     teachers: []
   };
   // exam list: status 'loading' | 'ok' | 'none' (no such sheet) | 'error'.
-  // EX joins the sheet «Экзамены» (EXS) and the list an admin loaded from a document (EXI).
+  // EX joins the sheet «Экзамены» (EXS), the college's Word schedules parsed by tools/parse_exams.py
+  // into data/exams.json (EXF) and the list an admin loaded from a document (EXI).
   var EXS = { status: 'loading', records: [], skipped: 0, source: '', at: 0 };
+  var EXF = { status: 'loading', records: [], period: '' };
   var EXI = { records: [], at: 0, raw: [] };
   var EX = { status: 'loading', records: [], skipped: 0, source: '', at: 0, imported: 0 };
   // guards: sheet name → why its fresh copy was not taken (ТЗ, этап 2: «данные не затираются»)
@@ -445,13 +447,14 @@
   }
   function rebuildExams() {
     var seen = {}, records = [];
-    EXS.records.concat(EXI.records).forEach(function (r) {
+    EXS.records.concat(EXF.records, EXI.records).forEach(function (r) {
       var k = [r.group, r.discipline, r.date, r.time].join('|').toLowerCase();
       if (!seen[k]) { seen[k] = true; records.push(r); }
     });
+    var extra = EXF.records.length + EXI.records.length > 0;
     EX = {
-      status: EXI.records.length ? 'ok' : EXS.status, records: records, skipped: EXS.skipped,
-      source: EXS.source || (EXI.records.length ? 'live' : ''), at: EXS.at || EXI.at, imported: EXI.records.length
+      status: extra ? 'ok' : EXS.status === 'loading' || EXF.status === 'loading' ? 'loading' : EXS.status, records: records, skipped: EXS.skipped,
+      source: EXS.source || (extra ? 'live' : ''), at: EXS.at || EXI.at, imported: EXI.records.length
     };
   }
   function applyPlan(csv, source, at) {
@@ -712,10 +715,9 @@
     e.group = listParam(p, 'group');
     e.teacher = listParam(p, 'teacher');
     e.disc = listParam(p, 'discipline');
-    e.type = /^(exam|credit|diff|retake)$/.test(p.get('type')) ? p.get('type') : 'all';
+    e.type = /^(exam|credit|diff|retake)$/.test(p.get('type')) ? p.get('type') : 'exam';
     e.status = /^(future|past)$/.test(p.get('status')) ? p.get('status') : 'all';
     e.half = /^[12]$/.test(p.get('half')) ? p.get('half') : 'all';
-    e.inList = p.get('retakes_in_list') === '1';
     e.from = /^\d{4}-\d{2}-\d{2}$/.test(p.get('date_from') || '') ? p.get('date_from') : '';
     e.to = /^\d{4}-\d{2}-\d{2}$/.test(p.get('date_to') || '') ? p.get('date_to') : '';
     e.search = p.get('search') || '';
@@ -729,10 +731,9 @@
     e.group.forEach(function (v) { p.append('group', v); });
     e.teacher.forEach(function (v) { p.append('teacher', v); });
     e.disc.forEach(function (v) { p.append('discipline', v); });
-    if (e.type !== 'all') p.set('type', e.type);
+    if (e.type !== 'exam') p.set('type', e.type);
     if (e.status !== 'all') p.set('status', e.status);
     if (e.half !== 'all') p.set('half', e.half);
-    if (e.inList) p.set('retakes_in_list', '1');
     if (e.from) p.set('date_from', e.from);
     if (e.to) p.set('date_to', e.to);
     if (e.search) p.set('search', e.search);
@@ -972,6 +973,19 @@
       else { EXS = { status: 'error', records: [], skipped: 0, source: '', at: 0 }; rebuildExams(); }
     });
   }
+  // exams and credits from the college's Word schedules (tools/parse_exams.py → data/exams.json)
+  function loadExamFile() {
+    if (!CFG.examsUrl) { EXF = { status: 'none', records: [], period: '' }; rebuildExams(); return Promise.resolve(); }
+    return fetch(CFG.examsUrl, { cache: 'no-cache' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (d) {
+      var recs = (d.records || []).filter(function (x) { return x && x.group && x.discipline && /^\d{4}-\d{2}-\d{2}$/.test(x.date) && TYPE_KEY[x.type]; });
+      EXF = { status: 'ok', records: recs, period: d.period || '' };
+    }, function () {
+      EXF = { status: 'error', records: [], period: '' };
+    }).then(function () { rebuildExams(); render(); });
+  }
   function loadLists() {
     net.pending++;
     net.listFailed = false;
@@ -986,7 +1000,7 @@
     }, function () {
       net.listFailed = true;
     });
-    return Promise.all([lists, loadExams(), loadPlan()]).then(function () {
+    return Promise.all([lists, loadExams(), loadExamFile(), loadPlan()]).then(function () {
       net.pending--;
       recompute();
       resolvePendingHash();
@@ -1295,11 +1309,13 @@
     el.hidden = false;
   }
 
-  // ТЗ БП 5.8: a reminder about exams and credits within the next 3 calendar days
+  // ТЗ БП 5.8: a reminder about exams within the next 3 calendar days.
+  // Credits and retakes are not shown in the general schedule, so the reminder leaves them out too.
   function renderReminder(sel, today) {
     var el = $('reminder');
     if (EX.status !== 'ok' || !sel) { el.hidden = true; return; }
     var soon = examItems().filter(function (it) {
+      if (it.retake || TYPE_KEY[it.rec.type] !== 'exam') return false;
       var d = daysBetween(today, it.date);
       if (d < 0 || d > 3) return false;
       return sel.mode === 'group' ? it.rec.group === sel.name : splitTeachers(it.rec.teacher).indexOf(sel.name) >= 0;
@@ -2272,7 +2288,6 @@
     Object.keys(MS).forEach(msSync);
     $('e-from').value = ex.from;
     $('e-to').value = ex.to;
-    $('e-inlist').checked = ex.inList;
     if (document.activeElement !== $('e-search')) $('e-search').value = ex.search;
     [['e-type', ex.type], ['e-status', ex.status], ['e-half', ex.half]].forEach(function (pair) {
       Array.prototype.forEach.call($(pair[0]).querySelectorAll('button'), function (b) {
@@ -2300,9 +2315,9 @@
       return;
     }
     var all = examItems().filter(function (it) { return matchesExam(it, today); });
-    // ТЗ БП 5.7: retakes have their own block and may also appear in the main list marked «(Пересдача)»
-    var main = ex.type === 'retake' ? [] : sortItems(all.filter(function (it) { return !it.retake || ex.inList; }));
-    var ret = sortItems(all.filter(function (it) { return it.retake; }));
+    // the general schedule lists exams; credits, diff. credits and retakes open only by their own buttons
+    var main = ex.type === 'retake' ? [] : sortItems(all.filter(function (it) { return !it.retake; }));
+    var ret = ex.type === 'retake' ? sortItems(all.filter(function (it) { return it.retake; })) : [];
     if (!main.length && !ret.length) {
       emptyEl.innerHTML = '<p>' + (EX.records.length ? 'По этим фильтрам ничего не нашлось.' : 'На листе «' + esc(CFG.examSheet) + '» пока нет ни одной записи.') + '</p>' +
         (EX.records.length ? '<button type="button" class="btn" data-reset>Сбросить фильтры</button>' : '');
@@ -2322,9 +2337,12 @@
 
   // ---------- the record book and a teacher's exams (ТЗ, этап 8) ----------
   // An exam of the schedule matched to a plan subject of the group, in the given half of the year.
+  // 1 August that opens the current academic year: older sessions stay out of this year's record book
+  function acadStart() { var t = new Date(); return ymd(t.getMonth() >= 6 ? t.getFullYear() : t.getFullYear() - 1, 8, 1); }
   function findExam(group, name, half) {
-    var h2 = half2Of(group), best = null, bestScore = 59;
+    var h2 = half2Of(group), from = acadStart(), best = null, bestScore = 59;
     EX.records.forEach(function (r) {
+      if (r.date < from) return;
       if (r.group !== group && resolveKey(r.group, [group], null) !== group) return;
       if (half && (half === 1 ? r.date >= h2 : r.date < h2)) return;
       var sc = Hours.matchScore(name, r.discipline);
@@ -2391,7 +2409,7 @@
       });
     });
     EX.records.forEach(function (r) {
-      if (hasT(r.teacher) && used.indexOf(r) < 0) items.push({ group: r.group, name: r.discipline, form: TYPE_KEY[r.type] === 'exam' ? 'Э' : TYPE_KEY[r.type] === 'diff' ? 'ДЗ' : 'З', half: r.date < half2Of(r.group) ? 1 : 2, rec: r });
+      if (hasT(r.teacher) && used.indexOf(r) < 0) items.push({ group: r.group, name: r.discipline, form: TYPE_KEY[r.type] === 'exam' ? 'Э' : TYPE_KEY[r.type] === 'diff' ? 'ДЗ' : 'З', half: r.date < acadStart() ? +halfOf(r.date) : r.date < half2Of(r.group) ? 1 : 2, rec: r });
     });
     items.sort(function (a, b) { return a.half - b.half || ((a.rec ? a.rec.date : '9') < (b.rec ? b.rec.date : '9') ? -1 : (a.rec ? a.rec.date : '9') > (b.rec ? b.rec.date : '9') ? 1 : cmpRu(a.group, b.group)); });
     if (!items.length) { box.innerHTML = controls + '<p class="empty">У преподавателя ' + esc(t) + ' по учебным планам и расписанию экзаменов нет ни экзаменов, ни зачётов.</p>'; return; }
@@ -2814,7 +2832,13 @@
       if (EX.status === 'loading') { st = 'loading'; text = 'Загружаю расписание экзаменов из Google-таблицы…'; }
       else if (EX.status === 'error') { st = 'error'; text = 'Не удалось загрузить расписание экзаменов из Google-таблицы.'; }
       else if (EX.source === 'cache') { st = 'stale'; text = 'Google-таблица не ответила. Показана сохранённая копия, загруженная ' + fmtStamp(EX.at) + '.'; }
-      else { st = 'ok'; text = EX.status === 'none' ? 'Google-таблица прочитана ' + fmtStamp(EX.at) + ': листа с экзаменами в ней пока нет.' : 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(EX.at) + '.'; }
+      else {
+        st = 'ok';
+        var docs = EXF.records.length ? 'графики экзаменов и зачётной недели' + (EXF.period ? ', ' + EXF.period : '') : '';
+        if (EXS.status === 'ok') text = 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(EX.at) + (docs ? '; к ним добавлены ' + docs : '') + '.';
+        else if (docs) text = 'Показаны ' + docs + '.';
+        else text = 'Google-таблица прочитана ' + fmtStamp(EX.at) + ': листа с экзаменами в ней пока нет.';
+      }
     } else {
       var shown = [];
       if (state.mode === 'group' && state.group && DB.sheets[state.group]) shown = [DB.sheets[state.group]];
@@ -3319,7 +3343,6 @@
   $('e-from').addEventListener('change', function (e) { setEx('from', e.target.value); });
   $('e-to').addEventListener('change', function (e) { setEx('to', e.target.value); });
   $('e-search').addEventListener('input', function (e) { setEx('search', e.target.value); });
-  $('e-inlist').addEventListener('change', function (e) { setEx('inList', e.target.checked); });
   [['e-type', 'type'], ['e-status', 'status'], ['e-half', 'half']].forEach(function (pair) {
     $(pair[0]).addEventListener('click', function (e) {
       var b = e.target.closest('button');
