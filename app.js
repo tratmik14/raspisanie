@@ -803,6 +803,8 @@
       if (state.view === 'hours' && state.half != null) p.set('half', state.half);
     }
     if (document.documentElement.classList.contains('embed')) p.set('embed', '1');
+    // the demo on the published site lives in the address; keep it so a reload stays in the demo
+    if (Api.mode === 'demo' && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) p.set('demo', '1');
     var qs = p.toString(), target = location.pathname + (qs ? '?' + qs : '');
     if (target === location.pathname + location.search && !location.hash) return;
     try { history.replaceState(null, '', target); } catch (e) { /* ignore */ }
