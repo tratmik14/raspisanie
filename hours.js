@@ -26,7 +26,8 @@
 
   // "-/Э 6к/6э" → ['', 'Э']; "З /Э 12К/6Э" → ['З', 'Э']; a single mark belongs to the term that has hours
   function parseForm(v, s1, s2) {
-    var s = cellText(v).replace(/\*/g, '');
+    // «к/р» is one mark (контрольная работа), not two terms split by the slash
+    var s = cellText(v).replace(/\*/g, '').replace(/к\s*[./]\s*р\.?/gi, 'КР');
     if (!s || /^[-–—]$/.test(s)) return ['', ''];
     var m = /^([А-ЯЁа-яёA-Za-z.\s-]*?)\s*\/\s*([А-ЯЁа-яёA-Za-z.-]*)/.exec(s);
     var a, b;

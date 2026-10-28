@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Расписание внутри ТехноПортала</title>
+  <style>
+    /* A stand-in for a page of ТехноПортал: its own header and the schedule embedded below. */
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #f2f6f9; color: #14273a; }
+    header { background: #22577a; color: #fff; padding: 14px 20px; font-weight: 700; }
+    main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+    iframe { display: block; width: 100%; height: 900px; border: 0; border-radius: 12px; background: #fff; }
+    p { margin: 0 0 12px; }
+  </style>
+</head>
+<body>
+  <header>ТехноПортал · Расписание</header>
+  <main>
+    <p>Так раздел «Расписание» выглядит внутри портала: у сайта нет своей шапки и подвала, а высота рамки подстраивается под содержимое.</p>
+    <iframe id="raspisanie" src="../?embed=1" title="Расписание занятий"></iframe>
+  </main>
+  <script>
+    // the schedule reports its height; the frame follows it, so the page has one scrollbar
+    window.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.type === 'raspisanie:height' && e.source === document.getElementById('raspisanie').contentWindow) {
+        document.getElementById('raspisanie').style.height = Math.max(400, Math.ceil(d.height)) + 'px';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -46,8 +46,10 @@
       <p class="status" id="status" data-state="loading" role="status">
         <span id="status-text">Загружаю расписание из Google-таблицы…</span>
         <button type="button" class="btn btn-quiet btn-small" id="retry" hidden>Повторить</button>
+        <button type="button" class="btn btn-small" id="refresh">Обновить</button>
       </p>
     </div>
+    <section class="guards" id="guards" hidden role="alert"></section>
 
     <nav class="views" role="tablist" aria-label="Разделы">
       <button type="button" role="tab" id="tab-lessons" data-view="lessons" aria-controls="view-lessons">Занятия</button>
@@ -82,6 +84,18 @@
             <button type="button" role="radio" data-value="0">Учебный год</button>
           </div>
         </div>
+        <div class="field" id="span-field">
+          <span class="label" id="span-label">Показать</span>
+          <div class="seg" id="span" role="radiogroup" aria-labelledby="span-label">
+            <button type="button" role="radio" data-value="today">Сегодня</button>
+            <button type="button" role="radio" data-value="tomorrow">Завтра</button>
+            <button type="button" role="radio" data-value="week">Неделя</button>
+          </div>
+        </div>
+        <div class="field f-date" id="date-field">
+          <label for="goto-date">Перейти к дате</label>
+          <input type="date" id="goto-date" name="goto_date">
+        </div>
         <label class="check" id="src-field" title="Под каждой парой: основная запись, замена или ручная правка, откуда она взята и когда изменена"><input type="checkbox" id="show-src" name="show_sources"> Тип и источник записей</label>
         <div class="weeknav" id="weeknav" hidden>
           <button type="button" class="btn btn-icon" id="wk-prev" aria-label="Предыдущая неделя"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -96,8 +110,12 @@
     </section>
 
     <main class="stack" id="view-lessons" role="tabpanel" aria-labelledby="tab-lessons">
-      <p class="admin-bar" id="admin-bar" hidden>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить или перенести её. На свободное время пару ставит кнопка «Добавить пару».</p>
+      <div class="admin-bar" id="admin-bar" hidden>
+        <p>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить, перенести её или поставить ещё одну пару в это же время. На свободное время пару ставит кнопка «Добавить пару».</p>
+        <button type="button" class="btn btn-small" id="bulk-open">Массовая замена</button>
+      </div>
       <section class="ribbon" id="ribbon" hidden aria-label="Учебный год группы по неделям"></section>
+      <section class="tdiff" id="tdiff" hidden aria-label="Что изменилось в таблице"></section>
       <section class="reminder" id="reminder" hidden aria-label="Ближайшая аттестация"></section>
       <section class="now" id="now" hidden aria-label="Сегодня"></section>
       <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра. Практика и праздники в нём не учтены.</span></p>
@@ -142,6 +160,14 @@
     </main>
 
     <main class="stack" id="view-exams" role="tabpanel" aria-labelledby="tab-exams" hidden>
+      <div class="seg seg-pages" id="ex-page" role="radiogroup" aria-label="Что показать">
+        <button type="button" role="radio" data-value="list">Расписание экзаменов</button>
+        <button type="button" role="radio" data-value="book">Зачётка студента</button>
+        <button type="button" role="radio" data-value="teacher">Преподавателю</button>
+      </div>
+      <div class="stack" id="ex-book" hidden></div>
+      <div class="stack" id="ex-teacher" hidden></div>
+      <div class="stack" id="ex-list">
       <section class="filters" aria-label="Фильтры расписания экзаменов">
         <div class="filter-row">
           <div class="field f-search">
@@ -225,6 +251,7 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="7" cy="18" r="2" fill="currentColor"/></svg>
               Колонки
             </button>
+            <button type="button" class="btn btn-small" id="e-import" hidden>Загрузить из документа</button>
             <button type="button" class="btn btn-small" id="e-template">Шаблон</button>
             <button type="button" class="btn btn-small" id="e-export">Экспорт в Excel</button>
           </div>
@@ -243,6 +270,7 @@
       </section>
 
       <section class="empty" id="e-empty" hidden></section>
+      </div>
 
       <dialog class="dlg" id="col-dialog" aria-labelledby="col-title">
         <form method="dialog">
@@ -391,6 +419,85 @@
     </form>
   </dialog>
 
+  <dialog class="dlg dlg-wide" id="bulk-dialog" aria-labelledby="bulk-title">
+    <form method="dialog" novalidate>
+      <h2 id="bulk-title">Массовая замена</h2>
+      <p class="hint">Например, преподаватель заболел: все его пары за выбранные дни переходят другому преподавателю или отменяются. Убрать всю замену разом можно в разделе «Изменения».</p>
+      <div class="field"><label for="bulk-teacher">Чьи пары</label><select id="bulk-teacher" name="bulk_teacher"></select></div>
+      <div class="row2">
+        <div class="field"><label for="bulk-from">С</label><input type="date" id="bulk-from" name="bulk_from"></div>
+        <div class="field"><label for="bulk-to">По</label><input type="date" id="bulk-to" name="bulk_to"></div>
+      </div>
+      <div class="field">
+        <span class="label" id="bulk-kind-label">Что сделать</span>
+        <div class="seg" id="bulk-kind" role="radiogroup" aria-labelledby="bulk-kind-label">
+          <button type="button" role="radio" data-value="replace">Передать другому преподавателю</button>
+          <button type="button" role="radio" data-value="cancel">Отменить пары</button>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field" id="bulk-new-field"><label for="bulk-new">Кто будет вести</label><input type="text" id="bulk-new" name="bulk_new" list="dl-teacher" autocomplete="off"></div>
+        <div class="field" id="bulk-room-field"><label for="bulk-room">Аудитория, если меняется</label><input type="text" id="bulk-room" name="bulk_room" list="dl-room" autocomplete="off" placeholder="Например, 305…"></div>
+      </div>
+      <div class="field"><label for="bulk-note">Причина, её видят все</label><input type="text" id="bulk-note" name="bulk_note" maxlength="200" autocomplete="off" placeholder="Например, преподаватель на больничном…"></div>
+      <div class="bulk-preview" id="bulk-preview" aria-live="polite"></div>
+      <p class="error" id="bulk-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="bulk-cancel">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="bulk-save">Заменить пары</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg dlg-wide" id="gf-dialog" aria-labelledby="gf-title">
+    <form method="dialog" novalidate>
+      <h2 id="gf-title">Изменить график учебного процесса</h2>
+      <p class="hint">Так сдвигают практику, сессию или каникулы. Изменения видны в ленте учебного года, на вкладке «График» и в подсчёте часов. PDF не меняется: «как в PDF» оставляет день как в документе.</p>
+      <div class="row2">
+        <div class="field"><label for="gf-group">Группа</label><select id="gf-group" name="gf_group"></select></div>
+        <div class="field"><label for="gf-all">Все дни недели</label><select id="gf-all" name="gf_all"></select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="gf-from">С недели</label><input type="date" id="gf-from" name="gf_from"></div>
+        <div class="field"><label for="gf-to">По</label><input type="date" id="gf-to" name="gf_to"></div>
+      </div>
+      <div class="gf-days">
+        <div class="field"><label for="gf-d0">Пн</label><select id="gf-d0" name="gf_d0"></select></div>
+        <div class="field"><label for="gf-d1">Вт</label><select id="gf-d1" name="gf_d1"></select></div>
+        <div class="field"><label for="gf-d2">Ср</label><select id="gf-d2" name="gf_d2"></select></div>
+        <div class="field"><label for="gf-d3">Чт</label><select id="gf-d3" name="gf_d3"></select></div>
+        <div class="field"><label for="gf-d4">Пт</label><select id="gf-d4" name="gf_d4"></select></div>
+      </div>
+      <div class="field"><label for="gf-note">Комментарий</label><input type="text" id="gf-note" name="gf_note" maxlength="200" autocomplete="off" placeholder="Например, практика перенесена по приказу…"></div>
+      <div class="gf-summary" id="gf-summary" aria-live="polite"></div>
+      <p class="error" id="gf-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet btn-danger" id="gf-reset">Вернуть как в PDF</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-quiet" id="gf-cancel">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="gf-save">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg dlg-wide" id="xi-dialog" aria-labelledby="xi-title">
+    <form method="dialog" novalidate>
+      <h2 id="xi-title">Экзамены из документа</h2>
+      <p class="hint">Подойдёт файл Excel (.xlsx, .xls, .csv), Word (.docx) или Google-документ с таблицей: группа, дисциплина, дата и время, аудитория, преподаватель, тип аттестации. Если таблица одной группы, группу можно написать над таблицей.</p>
+      <div class="field"><label for="xi-file">Файл</label><input type="file" id="xi-file" name="exam_file" accept=".xlsx,.xls,.csv,.docx,.html,.htm"></div>
+      <div class="xi-url">
+        <div class="field"><label for="xi-url">Или ссылка на Google-документ</label><input type="url" id="xi-url" name="exam_doc_url" autocomplete="off" placeholder="https://docs.google.com/document/d/…"></div>
+        <button type="button" class="btn" id="xi-read">Прочитать документ</button>
+      </div>
+      <p class="xi-status" id="xi-status" aria-live="polite"></p>
+      <div id="xi-preview"></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="xi-cancel">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="xi-save" disabled>Заменить список экзаменов</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="dlg dlg-wide" id="theme-dialog" aria-labelledby="theme-title">
     <form method="dialog">
       <h2 id="theme-title">Тема оформления</h2>
@@ -407,6 +514,7 @@
 
   <script src="config.js"></script>
   <script src="hours.js"></script>
+  <script src="gas-sim.js"></script>
   <script src="api.js"></script>
   <script src="app.js"></script>
 </body>

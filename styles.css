@@ -811,6 +811,100 @@ select:hover, input:hover { border-color: var(--primary); }
 .swatch i:nth-child(3) { margin: 10px 8px 10px 0; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
 .swatch[data-theme="portal"] { --bg: #eef3f7; --bg-image: none; --topbar: #22577a; --topbar-image: none; --primary: #23797b; --surface: #fff; --line: #d4e0e9; }
 
+/* Import button, parser warnings, «что изменилось» (ТЗ, этап 2) */
+#refresh { margin-left: 8px; vertical-align: baseline; }
+.guards { border: 1.5px solid var(--warn); background: var(--change-soft); border-radius: var(--radius); padding: 12px 16px; display: grid; gap: 6px; }
+.guards p, .guards ul { margin: 0; }
+.guards ul { padding-left: 1.2em; }
+.tdiff { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--secondary); border-radius: var(--radius); padding: 12px 16px; display: grid; gap: 6px; }
+.tdiff-title { margin: 0; font-weight: 700; }
+.tdiff ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
+.entry.is-tchanged .flag { background: var(--secondary-soft); color: var(--secondary); }
+.entry-acts { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.entry-acts .btn svg { width: 16px; height: 16px; }
+.conflict { margin: 6px 0 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--change-soft); color: var(--fg); font-size: .875rem; }
+.entry.has-conflict::before { background: repeating-linear-gradient(var(--change) 0 6px, var(--danger) 6px 12px); }
+.admin-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.admin-bar p { margin: 0; flex: 1 1 320px; }
+.week.one-day { grid-template-columns: minmax(0, 640px); }
+#span-field, #date-field { flex: 0 0 auto; }
+
+/* Corrections of the PDF schedule */
+.rw.is-edited { position: relative; }
+.rw.is-edited::after, .edited-mark { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 0 2px var(--surface); }
+.rw.is-edited::after { position: absolute; top: -3px; right: -2px; }
+.edited-mark { display: inline-block; box-shadow: none; }
+.grafik td.is-edited { box-shadow: inset 0 -3px 0 var(--fg); }
+.grafik td[data-gk] { cursor: pointer; }
+.grafik td[data-gk]:hover { background: var(--primary-soft); }
+.g-edit { width: 30px; height: 30px; margin-left: 6px; vertical-align: middle; }
+.g-edit svg { width: 15px; height: 15px; }
+.gf-days { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.gf-days select { padding: 0 6px; font-size: .875rem; }
+.gf-summary p, .gf-summary ul, .bulk-preview p, .bulk-preview ul { margin: 0; }
+.gf-summary ul, .bulk-list { padding-left: 1.2em; font-size: .875rem; color: var(--fg-2); }
+.bulk-preview { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); overscroll-behavior: contain; }
+.xi-url { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.xi-url .field { flex: 1 1 260px; }
+.xi-status { margin: 0; font-weight: 600; color: var(--fg-2); }
+.xi-status:empty { display: none; }
+input[type="url"], input[type="file"] { font: inherit; color: var(--fg); width: 100%; min-width: 0; }
+input[type="url"] { height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); }
+input[type="file"] { padding: 8px 0; }
+
+/* Changes view: conflicts, bulk replacements, the import journal */
+.conflicts { border-color: var(--change); }
+.b-batch { background: var(--secondary-soft); color: var(--secondary); }
+.rt-grafik { background: var(--today-soft); color: var(--on-today-soft); }
+.tj { padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.tj-head { margin: 0; }
+.tj ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; font-size: .9375rem; }
+.tj-warn li { color: var(--warn); font-weight: 600; }
+
+/* Exams: pages, the record book (зачётка) */
+.seg-pages { align-self: flex-start; }
+.book { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; position: relative; }
+.book::after { content: ""; position: absolute; top: 52px; bottom: 0; left: 50%; width: 28px; margin-left: -14px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, .07) 45%, rgba(0, 0, 0, .12) 50%, rgba(0, 0, 0, .07) 55%, transparent); }
+.book-cap { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 14px 18px; background: var(--topbar); background-image: var(--topbar-image); color: var(--on-topbar); }
+.book-cap strong { font-family: var(--display); font-size: 1.125rem; letter-spacing: -.01em; }
+.book-page { padding: 16px 18px 20px; min-width: 0; background-image: repeating-linear-gradient(transparent 0 35px, var(--line) 35px 36px); background-position: 0 56px; }
+.book-page + .book-page { border-left: 1px solid var(--line); }
+.book-page h3 { margin: 0 0 10px; font-family: var(--h1-font); font-size: 1.125rem; }
+:root[data-theme="notebook"] .book-page h3, :root[data-theme="board"] .book-page h3 { font-size: 1.6rem; font-weight: 700; }
+.book-table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; table-layout: fixed; }
+.book-table th:nth-child(1) { width: 2.2em; }
+.book-table th:nth-child(3) { width: 3.8em; }
+.book-table th:nth-child(4) { width: 4.8em; }
+.book-table th:nth-child(5) { width: 7.6em; }
+.book-table th:nth-child(6) { width: 9.6em; }
+.book-table td { overflow-wrap: break-word; }
+.book-table th { text-align: left; font-size: .75rem; color: var(--fg-3); font-weight: 700; padding: 4px 6px; border-bottom: 1.5px solid var(--line-strong); }
+.book-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.book-table .n { text-align: right; width: 1%; white-space: nowrap; }
+.book-table .grade { min-width: 70px; border-bottom: 1.5px dashed var(--line-strong); }
+@media (max-width: 1179px) {
+  .book { grid-template-columns: minmax(0, 1fr); }
+  .book::after { display: none; }
+  .book-page + .book-page { border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 859px) {
+  .gf-days { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .book-table thead { display: none; }
+  .book-table tr { display: grid; grid-template-columns: 2em minmax(0, 1fr); gap: 0 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .book-table td { border: 0; padding: 1px 0; }
+  .book-table td:nth-child(n+3) { grid-column: 2; }
+  .book-table .n { text-align: left; }
+  .book-table .grade { display: none; }
+}
+
+/* Inside ТехноПортал (?embed=1): no own top bar and footer, the portal has them */
+.embed .topbar, .embed .foot, .embed .lede, .embed .stamp { display: none; }
+.embed .page { padding-block: 12px 24px; }
+.embed .headline h1 { font-size: clamp(1.4rem, 1.1rem + 1.2vw, 2rem); }
+
 /* Toast */
 .toast {
   position: fixed;
