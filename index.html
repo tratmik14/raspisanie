@@ -1,17 +1,19 @@
 <!doctype html>
-<html lang="ru" data-theme="portal">
+<html lang="ru" data-theme="dawn">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Расписание · ТехноПортал</title>
   <meta name="description" content="Расписание занятий и экзаменов Люберецкого техникума, часы по предметам и график учебного процесса.">
-  <meta name="theme-color" content="#22577a">
+  <meta name="theme-color" content="#1f2a7a">
   <link rel="icon" href="logo.png" type="image/png">
-  <script>try { var t = localStorage.getItem('raspisanie.theme.v1'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}</script>
+  <script>(function () { var t = null; try { t = localStorage.getItem('raspisanie.theme.v1'); } catch (e) {}
+    if (!/^(cosmos|aurora|sunset|neon|dawn|dune)$/.test(t || '')) t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'cosmos' : 'dawn';
+    document.documentElement.setAttribute('data-theme', t); })();</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=3.5">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
+  <link rel="stylesheet" href="styles.css?v=3.6">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -21,16 +23,17 @@
         <img src="logo.png" alt="Логотип Люберецкого техникума" width="62" height="48">
         <span class="brand-name">ГБПОУ МО<br>Люберецкий техникум<br>имени Героя Советского Союза,<br>лётчика-космонавта Ю. А. Гагарина</span>
       </a>
-      <div class="portal" translate="no">ТехноПортал</div>
+      <div class="portal" translate="no"><span>ТехноПортал</span></div>
       <div class="top-actions">
         <div class="sysinfo">
           <strong id="today-label"></strong>
           <span id="term-label"></span>
         </div>
-        <button type="button" class="icon-btn" id="theme-btn" aria-haspopup="dialog" aria-label="Тема оформления" title="Тема оформления">
+        <button type="button" class="icon-btn theme-btn" id="theme-btn" aria-haspopup="dialog" title="Тема оформления">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.3" fill="currentColor"/><circle cx="10.5" cy="7" r="1.3" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.3" fill="currentColor"/></svg>
+          <span>Темы</span>
         </button>
-        <button type="button" class="account-btn" id="account-btn" aria-haspopup="dialog" aria-label="Войти как администратор">
+        <button type="button" class="account-btn" id="account-btn" aria-haspopup="dialog" aria-label="Войти как администратор" title="Вход для администратора">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           <span id="account-label">Вход для администратора</span>
           <span class="account-short" id="account-short" aria-hidden="true">Вход</span>
@@ -502,7 +505,7 @@
   <dialog class="dlg dlg-wide" id="theme-dialog" aria-labelledby="theme-title">
     <form method="dialog">
       <h2 id="theme-title">Тема оформления</h2>
-      <p class="hint">Тема запоминается в этом браузере.</p>
+      <p class="hint">Пока тема не выбрана, она следует настройке системы: при тёмной — «Космос», при светлой — «Рассвет». Выбранная тема запоминается в этом браузере.</p>
       <ul class="theme-list" id="theme-list"></ul>
       <div class="dlg-actions"><button type="submit" class="btn btn-primary">Готово</button></div>
     </form>
@@ -513,10 +516,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=3.5"></script>
-  <script src="hours.js?v=3.5"></script>
-  <script src="gas-sim.js?v=3.5"></script>
-  <script src="api.js?v=3.5"></script>
-  <script src="app.js?v=3.5"></script>
+  <script src="config.js?v=3.6"></script>
+  <script src="hours.js?v=3.6"></script>
+  <script src="gas-sim.js?v=3.6"></script>
+  <script src="api.js?v=3.6"></script>
+  <script src="app.js?v=3.6"></script>
 </body>
 </html>

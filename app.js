@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.5';
+  var SITE_VERSION = '3.6';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -37,12 +37,12 @@
     P: 'производственная практика', X: 'преддипломная практика', D: 'подготовка к ГИА', G: 'государственная итоговая аттестация'
   };
   var THEMES = [
-    { id: 'portal', name: 'Портал', note: 'цвета ТехноПортала, светлая или тёмная по системе' },
-    { id: 'notebook', name: 'Тетрадь', note: 'клетка, синие чернила и красные поля' },
-    { id: 'board', name: 'Доска', note: 'зелёная доска и мел' },
-    { id: 'cosmos', name: 'Космос', note: 'ночное небо и оранжевый «Восток»' },
-    { id: 'blueprint', name: 'Чертёж', note: 'синька и белые линии' },
-    { id: 'lilac', name: 'Сирень', note: 'светлая, сиреневая с мятным' }
+    { id: 'cosmos', name: 'Космос', note: 'тёмная, ночное небо и оранжевый «Восток»' },
+    { id: 'aurora', name: 'Аврора', note: 'тёмная, северное сияние' },
+    { id: 'sunset', name: 'Закат', note: 'тёмная, стратосфера на закате' },
+    { id: 'neon', name: 'Неон', note: 'тёмная, ночной город и неон' },
+    { id: 'dawn', name: 'Рассвет', note: 'светлая, утреннее небо' },
+    { id: 'dune', name: 'Дюна', note: 'светлая, тёплый песок и терракота' }
   ];
   var Api = window.RaspApi;
   var Hours = window.RaspHours;
@@ -2607,6 +2607,7 @@
     var u = Api.user(), btn = $('account-btn');
     $('account-label').textContent = u ? u.name : 'Вход для администратора';
     $('account-short').textContent = u ? 'Админ' : 'Вход';
+    btn.title = u ? u.name + ': меню администратора' : 'Вход для администратора';
     $('foot-admin').textContent = u ? 'Меню администратора' : 'Вход для администратора';
     btn.classList.toggle('is-in', !!u);
     btn.setAttribute('aria-label', u ? 'Администратор ' + u.name + ': меню' : 'Войти как администратор');
@@ -2804,16 +2805,19 @@
   }
 
   // ---------- themes ----------
-  function currentTheme() {
+  // until a visitor picks a theme, it follows the system: Космос in the dark, Рассвет in the light
+  var DARK = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false };
+  function savedTheme() {
     var t = null;
     try { t = localStorage.getItem(THEME_KEY); } catch (e) { t = null; }
-    return THEMES.some(function (x) { return x.id === t; }) ? t : 'portal';
+    return THEMES.some(function (x) { return x.id === t; }) ? t : null;
   }
-  function applyTheme(id) {
+  function currentTheme() { return savedTheme() || (DARK.matches ? 'cosmos' : 'dawn'); }
+  function applyTheme(id, save) {
     document.documentElement.setAttribute('data-theme', id);
-    try { localStorage.setItem(THEME_KEY, id); } catch (e) { /* storage unavailable */ }
+    if (save) { try { localStorage.setItem(THEME_KEY, id); } catch (e) { /* storage unavailable */ } }
     var meta = document.querySelector('meta[name="theme-color"]:not([media])');
-    if (meta) meta.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--topbar').trim() || '#22577a');
+    if (meta) meta.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--topbar').trim() || '#1f2a7a');
     renderThemes();
   }
   function renderThemes() {
@@ -3209,10 +3213,15 @@
     var b = e.target.closest('[data-theme-pick]');
     if (b) {
       var pick = b.getAttribute('data-theme-pick'), done = false;
-      var apply = function () { if (!done) { done = true; applyTheme(pick); } };
-      // the old and new themes crossfade; if the browser cannot draw the crossfade soon, the theme simply switches
-      if (document.startViewTransition && !REDUCED.matches) { document.startViewTransition(apply); setTimeout(apply, 400); }
-      else apply();
+      var apply = function () { if (!done) { done = true; applyTheme(pick, true); } };
+      // the old and new themes crossfade; if the browser cannot draw the crossfade soon (a background tab),
+      // the theme simply switches and the stalled crossfade is dropped so the page does not stay frozen on the old picture
+      if (document.startViewTransition && !REDUCED.matches) {
+        var vt = document.startViewTransition(apply), over = false;
+        vt.finished.then(function () { over = true; }, function () { over = true; });
+        vt.ready.catch(function () { /* a dropped crossfade is expected here */ });
+        setTimeout(function () { apply(); if (!over) vt.skipTransition(); }, 700);
+      } else apply();
     }
   });
   $('ed-kind').addEventListener('click', function (e) {
@@ -3448,6 +3457,7 @@
   // ---------- start ----------
   (function boot() {
     applyTheme(currentTheme());
+    if (DARK.addEventListener) DARK.addEventListener('change', function () { if (!savedTheme()) applyTheme(currentTheme()); });
     ['ms-group', 'ms-teacher', 'ms-disc'].forEach(msInit);
     renderFavs();
     readUrl();

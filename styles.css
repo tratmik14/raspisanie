@@ -1,17 +1,15 @@
 /* Расписание · ТехноПортал.
-   Темы: html[data-theme] — portal (по умолчанию, светлая или тёмная по системе), notebook, board, cosmos, blueprint, lilac.
+   Темы: html[data-theme] — cosmos, aurora, sunset, neon (тёмные), dawn, dune (светлые).
+   Пока посетитель не выбрал тему, она следует системе: тёмная — cosmos, светлая — dawn.
    Цвета недель (--w*) взяты из легенды бумажного графика учебного процесса и одинаковы во всех темах:
    жёлтая учебная практика, оранжевая производственная, зелёная аттестация, голубые каникулы. */
 :root {
   --display: "Unbounded", "Golos Text", system-ui, sans-serif;
   --font: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --hand: "Caveat", "Segoe Print", cursive;
   --radius: 12px;
   --radius-sm: 8px;
   --ease: 180ms cubic-bezier(.2, .7, .2, 1);
-  --shadow: 0 18px 48px rgba(10, 20, 40, .22);
 
-  --wT: #e6edf3;
   --wA: #6cc04a;
   --wK: #9ec5f0;
   --wU: #f5c518;
@@ -20,131 +18,191 @@
   --wD: #b197fc;
   --wG: #c92a2a;
 
-  /* portal, light */
-  --bg: #eef3f7;
-  --bg-image: none;
-  --surface: #ffffff;
-  --surface-2: #f4f8fb;
-  --fg: #12263a;
-  --fg-2: #3a5266;
-  --fg-3: #5d7184;
-  --line: #d4e0e9;
-  --line-strong: #a9bccb;
-  --primary: #22577a;
-  --on-primary: #ffffff;
-  --primary-soft: #e1edf5;
-  --secondary: #23797b;
-  --secondary-soft: #d9f0ef;
-  --today: #f2b705;
-  --today-soft: #fff4cc;
-  --on-today-soft: #6b4500;
-  --topbar: #22577a;
-  --topbar-image: none;
-  --on-topbar: #ffffff;
-  --ok: #2b8a3e;
-  --warn: #b35c00;
-  --danger: #c92a2a;
-  --danger-soft: #ffe3e3;
-  --change: #e67700;
-  --change-soft: #fff0d9;
-  --add: #2b8a3e;
-  --add-soft: #e3f6e6;
   --h1-font: var(--display);
   --h1-size: clamp(1.6rem, 1.2rem + 1.8vw, 2.5rem);
   --day-font: var(--font);
+}
+/* Every theme declares all of its colours, so a swatch in the theme picker shows its own theme
+   whatever theme the page is in. Рассвет is also the fallback before the theme script runs. */
+/* Рассвет: светлая, утреннее небо перед стартом */
+:root,
+[data-theme="dawn"] {
+  --bg: #eef2fb;
+  --bg-image: radial-gradient(ellipse 70% 55% at 100% 0%, rgba(255, 166, 120, .28), transparent 70%), radial-gradient(ellipse 60% 50% at 0% 100%, rgba(110, 140, 255, .20), transparent 70%);
+  --bg-size: 100% 100%, 100% 100%;
+  --surface: #ffffff;
+  --surface-2: #f5f7fd;
+  --fg: #141a33;
+  --fg-2: #39436a;
+  --fg-3: #596386;
+  --line: #dde3f3;
+  --line-strong: #aeb9db;
+  --primary: #3043c4;
+  --on-primary: #ffffff;
+  --primary-soft: #e6e9fb;
+  --secondary: #0b6e86;
+  --secondary-soft: #dcf1f6;
+  --today: #d27600;
+  --today-soft: #fff1d1;
+  --on-today-soft: #6b4100;
+  --topbar: #1f2a7a;
+  --topbar-image: linear-gradient(100deg, #1f2a7a 0%, #3043c4 55%, #c2577a 100%);
+  --topbar-size: 100% 100%;
+  --on-topbar: #ffffff;
+  --ok: #1d7f45;
+  --warn: #a24b00;
+  --danger: #c01c38;
+  --danger-soft: #ffe4e8;
+  --change: #b13b0a;
+  --change-soft: #ffeadd;
+  --add: #18703d;
+  --add-soft: #e0f4e8;
+  --wT: #e6eaf7;
+  --shadow: 0 18px 48px rgba(30, 40, 100, .18);
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  [data-theme="portal"] {
-    --wT: #24463a;
-    --bg: #0d2b1a;
-    --surface: #163826;
-    --surface-2: #1b3f2c;
-    --fg: #f2f7f3;
-    --fg-2: #d3e2d8;
-    --fg-3: #a9c2b2;
-    --line: #2a4f3b;
-    --line-strong: #427059;
-    --primary: #69f0ae;
-    --on-primary: #06301c;
-    --primary-soft: #1f4a35;
-    --secondary: #5bc0be;
-    --secondary-soft: #173f3d;
-    --today: #ffd43b;
-    --today-soft: #3d3511;
-    --on-today-soft: #ffe8a3;
-    --topbar: #0a2214;
-    --ok: #69db7c;
-    --warn: #ffc078;
-    --danger: #ff8787;
-    --danger-soft: #3b1d1d;
-    --change: #ffa94d;
-    --change-soft: #3d2a12;
-    --add: #8ce99a;
-    --add-soft: #173d22;
-    --shadow: 0 18px 48px rgba(0, 0, 0, .5);
-    color-scheme: dark;
-  }
+/* Дюна: светлая, тёплый песок и терракота */
+[data-theme="dune"] {
+  --bg: #f5eee3;
+  --bg-image: radial-gradient(ellipse 80% 60% at 0% 0%, rgba(255, 255, 255, .7), transparent 70%), radial-gradient(ellipse 70% 50% at 100% 100%, rgba(196, 90, 50, .14), transparent 70%);
+  --bg-size: 100% 100%, 100% 100%;
+  --surface: #fffaf3;
+  --surface-2: #f6ede0;
+  --fg: #2b1d14;
+  --fg-2: #583f2e;
+  --fg-3: #73594a;
+  --line: #eadbc8;
+  --line-strong: #c9b093;
+  --primary: #a83d1a;
+  --on-primary: #ffffff;
+  --primary-soft: #f7e1d3;
+  --secondary: #1b6670;
+  --secondary-soft: #d9eeec;
+  --today: #b87400;
+  --today-soft: #fbedc4;
+  --on-today-soft: #593f00;
+  --topbar: #3a2417;
+  --topbar-image: linear-gradient(100deg, #3a2417 0%, #5a3220 60%, #a83d1a 130%);
+  --topbar-size: 100% 100%;
+  --on-topbar: #fff6ea;
+  --ok: #3a7530;
+  --warn: #8f5200;
+  --danger: #ad2216;
+  --danger-soft: #fde2dc;
+  --change: #b23a0b;
+  --change-soft: #fde8d8;
+  --add: #3a7530;
+  --add-soft: #e4f1dd;
+  --wT: #efe3d3;
+  --shadow: 0 18px 48px rgba(60, 35, 15, .18);
+  color-scheme: light;
 }
-/* Тетрадь: клетка 5 мм, синие чернила, красные поля */
-[data-theme="notebook"] {
-  --bg: #fbfbf6;
-  --bg-image: linear-gradient(90deg, transparent calc(max(16px, 4vw) - 1px), rgba(224, 49, 49, .45) calc(max(16px, 4vw) - 1px), rgba(224, 49, 49, .45) max(16px, 4vw), transparent max(16px, 4vw)),
-    linear-gradient(rgba(76, 110, 245, .13) 1px, transparent 1px), linear-gradient(90deg, rgba(76, 110, 245, .13) 1px, transparent 1px);
-  --bg-size: 100% 100%, 22px 22px, 22px 22px;
-  --surface: #ffffff;
-  --surface-2: #f3f5ff;
-  --fg: #1b2559;
-  --fg-2: #3b4a8a;
-  --fg-3: #6371a8;
-  --line: #d5dbf5;
-  --line-strong: #a7b2e3;
-  --primary: #2541b2;
-  --primary-soft: #e5eaff;
-  --secondary: #c2255c;
-  --secondary-soft: #ffe3ec;
-  --topbar: #2541b2;
-  --topbar-image: repeating-linear-gradient(90deg, transparent 0 21px, rgba(255, 255, 255, .08) 21px 22px);
-  --wT: #eef1fd;
-  --h1-font: var(--hand);
-  --h1-size: clamp(2.3rem, 1.8rem + 2.4vw, 3.4rem);
-  --day-font: var(--hand);
+/* Аврора: тёмная, северное сияние над тундрой */
+[data-theme="aurora"] {
+  --bg: #06171c;
+  --bg-image: radial-gradient(ellipse 75% 50% at 18% 10%, rgba(46, 242, 160, .30), transparent 70%), radial-gradient(ellipse 65% 50% at 85% 6%, rgba(151, 117, 250, .34), transparent 70%), radial-gradient(ellipse 90% 45% at 50% 110%, rgba(34, 211, 238, .16), transparent 70%);
+  --bg-size: 100% 100%, 100% 100%, 100% 100%;
+  --surface: #0c232a;
+  --surface-2: #112d35;
+  --fg: #eafaf6;
+  --fg-2: #c4e3dc;
+  --fg-3: #93b8b0;
+  --line: #1d3c44;
+  --line-strong: #336069;
+  --primary: #4cf0b0;
+  --on-primary: #03291c;
+  --primary-soft: #123f3a;
+  --secondary: #b9a2ff;
+  --secondary-soft: #262a52;
+  --today: #ffd166;
+  --today-soft: #3a3419;
+  --on-today-soft: #ffe7a6;
+  --topbar: #04120f;
+  --topbar-image: linear-gradient(100deg, rgba(76, 240, 176, .20), transparent 45%, rgba(185, 162, 255, .22));
+  --topbar-size: 100% 100%;
+  --on-topbar: #eafaf6;
+  --ok: #6ee7a8;
+  --warn: #ffc078;
+  --danger: #ff8f8f;
+  --danger-soft: #3d1f26;
+  --change: #ffb86b;
+  --change-soft: #382a17;
+  --add: #8ef0b8;
+  --add-soft: #113a2b;
+  --wT: #17363d;
+  --shadow: 0 18px 48px rgba(0, 0, 0, .55);
+  color-scheme: dark;
 }
-/* Доска: зелёная доска в деревянной раме, мел */
-[data-theme="board"] {
-  --bg: #23403a;
-  --bg-image: radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1.5px), radial-gradient(rgba(255, 255, 255, .03) 1px, transparent 1.5px);
-  --bg-size: 7px 7px, 13px 13px;
-  --surface: #2b4c44;
-  --surface-2: #31554c;
-  --fg: #f4f6ef;
-  --fg-2: #dfe6d8;
-  --fg-3: #b7c6b5;
-  --line: #3f665b;
-  --line-strong: #5d8577;
-  --primary: #ffe066;
-  --on-primary: #1e2d27;
-  --primary-soft: #3d5a43;
-  --secondary: #a5d8ff;
-  --secondary-soft: #2f5162;
-  --today: #ffa8c5;
-  --today-soft: #4d3d47;
-  --on-today-soft: #ffd6e5;
-  --topbar: #6b4a2b;
-  --topbar-image: repeating-linear-gradient(100deg, rgba(0, 0, 0, .08) 0 3px, transparent 3px 11px, rgba(255, 255, 255, .05) 11px 13px, transparent 13px 23px);
-  --ok: #8ce99a;
-  --warn: #ffd8a8;
-  --danger: #ffa8a8;
-  --danger-soft: #4b3434;
-  --change: #ffd8a8;
-  --change-soft: #4a4434;
-  --add: #b2f2bb;
-  --add-soft: #2f5a3f;
-  --wT: #36594f;
-  --h1-font: var(--hand);
-  --h1-size: clamp(2.4rem, 1.9rem + 2.4vw, 3.6rem);
-  --day-font: var(--hand);
-  --shadow: 0 18px 48px rgba(0, 0, 0, .45);
+/* Закат: тёмная, стратосфера на закате */
+[data-theme="sunset"] {
+  --bg: #1a0f1f;
+  --bg-image: radial-gradient(ellipse 90% 45% at 50% 112%, rgba(255, 122, 89, .38), transparent 72%), linear-gradient(180deg, #1a0f1f 0%, #26112b 55%, #3a1528 100%);
+  --bg-size: 100% 100%, 100% 100%;
+  --surface: #24142b;
+  --surface-2: #2d1934;
+  --fg: #fbefe9;
+  --fg-2: #e8d0c8;
+  --fg-3: #c0a096;
+  --line: #3e2643;
+  --line-strong: #62405f;
+  --primary: #ff8a5c;
+  --on-primary: #2a0d00;
+  --primary-soft: #46223a;
+  --secondary: #ffc857;
+  --secondary-soft: #3e2d1f;
+  --today: #ff7eb0;
+  --today-soft: #47203b;
+  --on-today-soft: #ffd3e4;
+  --topbar: #12080f;
+  --topbar-image: linear-gradient(100deg, rgba(255, 138, 92, .28), rgba(255, 126, 176, .16) 55%, transparent);
+  --topbar-size: 100% 100%;
+  --on-topbar: #fff3ec;
+  --ok: #7ee2a8;
+  --warn: #ffc078;
+  --danger: #ff8f8f;
+  --danger-soft: #45202a;
+  --change: #ffb15c;
+  --change-soft: #3f2a1c;
+  --add: #8ce99a;
+  --add-soft: #1f3a2a;
+  --wT: #36213c;
+  --shadow: 0 18px 48px rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+/* Неон: тёмная, ночной город и неоновые вывески */
+[data-theme="neon"] {
+  --bg: #0a0a12;
+  --bg-image: radial-gradient(ellipse 60% 45% at 0% 12%, rgba(255, 92, 210, .26), transparent 70%), radial-gradient(ellipse 60% 45% at 100% 8%, rgba(34, 227, 245, .24), transparent 70%), linear-gradient(rgba(140, 160, 255, .06) 1px, transparent 1px), linear-gradient(90deg, rgba(140, 160, 255, .06) 1px, transparent 1px);
+  --bg-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  --surface: #12121d;
+  --surface-2: #191927;
+  --fg: #f1f1ff;
+  --fg-2: #cacae8;
+  --fg-3: #9a9abf;
+  --line: #262640;
+  --line-strong: #3d3d63;
+  --primary: #22e3f5;
+  --on-primary: #001b20;
+  --primary-soft: #0f3039;
+  --secondary: #ff6ad8;
+  --secondary-soft: #3a1636;
+  --today: #f4f36b;
+  --today-soft: #33321a;
+  --on-today-soft: #fbfab0;
+  --topbar: #06060c;
+  --topbar-image: linear-gradient(100deg, rgba(255, 106, 216, .24), transparent 50%, rgba(34, 227, 245, .24));
+  --topbar-size: 100% 100%;
+  --on-topbar: #f1f1ff;
+  --ok: #6bf2a0;
+  --warn: #ffc46b;
+  --danger: #ff7a96;
+  --danger-soft: #3b1626;
+  --change: #ffb547;
+  --change-soft: #352712;
+  --add: #6bf2a0;
+  --add-soft: #11331f;
+  --wT: #1d1d30;
+  --shadow: 0 18px 48px rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
 /* Космос: ночное небо, в честь Ю. А. Гагарина */
@@ -171,6 +229,8 @@
   --today-soft: #3a3420;
   --on-today-soft: #ffec99;
   --topbar: #060a20;
+  --topbar-size: auto;
+  --on-topbar: #ffffff;
   --topbar-image: radial-gradient(1px 1px at 20% 30%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 60% 70%, #fff 50%, transparent 51%), radial-gradient(1px 1px at 85% 25%, #fff 50%, transparent 51%);
   --ok: #8ce99a;
   --warn: #ffc078;
@@ -183,63 +243,6 @@
   --wT: #222a58;
   --shadow: 0 18px 48px rgba(0, 0, 0, .6);
   color-scheme: dark;
-}
-/* Чертёж: синька с сеткой, как на листах ТМ и МСР */
-[data-theme="blueprint"] {
-  --bg: #14457a;
-  --bg-image: linear-gradient(rgba(255, 255, 255, .16) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .16) 1px, transparent 1px),
-    linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .06) 1px, transparent 1px);
-  --bg-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
-  --surface: #17508b;
-  --surface-2: #1b5896;
-  --fg: #f3f8ff;
-  --fg-2: #d6e6fb;
-  --fg-3: #a9c6ea;
-  --line: #3a6fa8;
-  --line-strong: #79a3d3;
-  --primary: #ffffff;
-  --on-primary: #12406e;
-  --primary-soft: #23609f;
-  --secondary: #9fd8ff;
-  --secondary-soft: #22609a;
-  --today: #ffe08a;
-  --today-soft: #2c5b7d;
-  --on-today-soft: #fff1c2;
-  --topbar: #0e3359;
-  --topbar-image: linear-gradient(90deg, rgba(255, 255, 255, .08) 1px, transparent 1px);
-  --ok: #b2f2bb;
-  --warn: #ffe08a;
-  --danger: #ffc9c9;
-  --danger-soft: #4b3d6b;
-  --change: #ffe08a;
-  --change-soft: #2f5a7a;
-  --add: #b2f2bb;
-  --add-soft: #1f5d6e;
-  --wT: #2a62a0;
-  --radius: 4px;
-  --radius-sm: 2px;
-  --shadow: 0 18px 48px rgba(0, 0, 0, .4);
-  color-scheme: dark;
-}
-[data-theme="blueprint"] { --topbar-size: 24px 100%; }
-/* Сирень: светлая, сиреневая с мятным */
-[data-theme="lilac"] {
-  --bg: #f5f2fb;
-  --bg-image: radial-gradient(ellipse at 100% 0%, rgba(132, 94, 247, .12), transparent 50%);
-  --surface: #ffffff;
-  --surface-2: #f8f5ff;
-  --fg: #251a3f;
-  --fg-2: #4a3d6b;
-  --fg-3: #6f6391;
-  --line: #e3dcf3;
-  --line-strong: #c0b3e3;
-  --primary: #6741d9;
-  --primary-soft: #efe9ff;
-  --secondary: #087f5b;
-  --secondary-soft: #dcf5ec;
-  --topbar: #4b2aa8;
-  --topbar-image: linear-gradient(120deg, rgba(255, 255, 255, .08), transparent 60%);
-  --wT: #efeaf9;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -308,7 +311,11 @@ abbr[title] { text-decoration: underline dotted; cursor: help; }
 .icon-btn { width: 40px; }
 .account-btn { padding: 0 14px 0 12px; font-size: .875rem; font-weight: 600; max-width: 250px; }
 .account-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-btn .account-short { display: none; }
+/* the top bar also holds the date and «Темы», so the login button always keeps its short word («Вход» / «Админ»);
+   the full «Вход для администратора» is its tooltip and the link in the footer */
+.account-btn #account-label { display: none; }
+.sysinfo strong { white-space: nowrap; }
+.icon-btn.theme-btn { width: auto; padding: 0 14px 0 11px; font-size: .875rem; font-weight: 600; }
 .icon-btn:hover, .account-btn:hover { background: rgba(255, 255, 255, .24); }
 .account-btn.is-in { background: var(--on-topbar); color: var(--topbar); border-color: transparent; }
 
@@ -322,14 +329,11 @@ abbr[title] { text-decoration: underline dotted; cursor: help; }
   flex-direction: column;
   gap: 20px;
 }
-:root[data-theme="notebook"] .page { padding-left: max(calc(max(16px, 4vw) + 14px), env(safe-area-inset-left, 0px)); }
 .stack { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .eyebrow { font-size: .8125rem; font-weight: 700; color: var(--fg-3); }
 
 /* Heading */
 .headline h1 { margin: 0; font-family: var(--h1-font); font-weight: 800; font-size: var(--h1-size); line-height: 1.1; letter-spacing: -.02em; text-wrap: balance; }
-:root[data-theme="notebook"] .headline h1, :root[data-theme="board"] .headline h1 { font-weight: 700; letter-spacing: 0; }
-:root[data-theme="notebook"] .headline h1 { color: var(--primary); }
 .lede { margin: 8px 0 0; color: var(--fg-2); max-width: 70ch; }
 .stamp { margin: 6px 0 0; color: var(--fg-3); font-size: .875rem; font-variant-numeric: tabular-nums; }
 .status { margin: 4px 0 0; position: relative; padding-left: 18px; font-size: .875rem; color: var(--fg-2); }
@@ -362,7 +366,7 @@ abbr[title] { text-decoration: underline dotted; cursor: help; }
 }
 .views button:hover { color: var(--fg); }
 .views button[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
-.tab-count:not(:empty) { background: var(--change); color: #1b1300; border-radius: 999px; font-size: .75rem; line-height: 1.6; padding: 0 7px; font-variant-numeric: tabular-nums; }
+.tab-count:not(:empty) { background: var(--change); color: var(--surface); border-radius: 999px; font-size: .75rem; line-height: 1.6; padding: 0 7px; font-variant-numeric: tabular-nums; }
 
 /* Filter band */
 .filters {
@@ -516,7 +520,6 @@ select:hover, input:hover { border-color: var(--primary); }
 .dcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-width: 0; }
 .dhead { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 .dname { font-family: var(--day-font); font-weight: 800; font-size: 1.0625rem; }
-:root[data-theme="notebook"] .dname, :root[data-theme="board"] .dname { font-weight: 700; font-size: 1.5rem; line-height: 1; }
 .ddate { color: var(--fg-3); font-size: .9375rem; }
 .rel { margin-left: auto; font-size: .8125rem; font-weight: 800; color: var(--secondary); }
 .dcard.is-today { border-color: var(--today); box-shadow: 0 0 0 1px var(--today); }
@@ -810,7 +813,6 @@ select:hover, input:hover { border-color: var(--primary); }
 .swatch i:nth-child(1) { background: var(--topbar); background-image: var(--topbar-image); }
 .swatch i:nth-child(2) { margin: 10px 4px; border-radius: 4px; background: var(--primary); }
 .swatch i:nth-child(3) { margin: 10px 8px 10px 0; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
-.swatch[data-theme="portal"] { --bg: #eef3f7; --bg-image: none; --topbar: #22577a; --topbar-image: none; --primary: #23797b; --surface: #fff; --line: #d4e0e9; }
 
 /* Import button, parser warnings, «что изменилось» (ТЗ, этап 2) */
 #refresh { margin-left: 8px; vertical-align: baseline; }
@@ -873,7 +875,6 @@ input[type="file"] { padding: 8px 0; }
 .book-page { padding: 16px 18px 20px; min-width: 0; background-image: repeating-linear-gradient(transparent 0 35px, var(--line) 35px 36px); background-position: 0 56px; }
 .book-page + .book-page { border-left: 1px solid var(--line); }
 .book-page h3 { margin: 0 0 10px; font-family: var(--h1-font); font-size: 1.125rem; }
-:root[data-theme="notebook"] .book-page h3, :root[data-theme="board"] .book-page h3 { font-size: 1.6rem; font-weight: 700; }
 .book-table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; table-layout: fixed; }
 .book-table th:nth-child(1) { width: 2.2em; }
 .book-table th:nth-child(3) { width: 3.8em; }
@@ -929,6 +930,11 @@ input[type="file"] { padding: 8px 0; }
 @media (max-width: 1100px) {
   .sysinfo span { display: none; }
 }
+/* below 1100 px the date («Понедельник, 30 сентября» is the longest), «Темы» and «Вход» no longer fit beside the title;
+   the week and today are in the schedule itself */
+@media (max-width: 1099px) {
+  .sysinfo { display: none; }
+}
 @media (max-width: 1023px) {
   .smart .col-minor { display: none; }
 }
@@ -944,13 +950,14 @@ input[type="file"] { padding: 8px 0; }
   .topbar-inner { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; }
   .brand-name { display: none; }
   .brand img { height: 40px; }
-  .portal { font-size: clamp(.8125rem, 3.8vw, 1.0625rem); overflow: hidden; text-overflow: ellipsis; }
+  .portal { font-size: clamp(.8125rem, 3.8vw, 1.0625rem); overflow: hidden; text-overflow: ellipsis; container-type: inline-size; }
+  /* the word is about 8.4 of its own font size wide: it takes the room the buttons leave and never gets cut */
+  .portal span { font-size: clamp(.625rem, 11.5cqi, 1.0625rem); }
   .top-actions { gap: 8px; }
   .sysinfo { display: none; }
-  /* on phones the button keeps a short word next to the lock, so it reads as a login and not a decoration */
-  .account-btn #account-label { display: none; }
-  .account-btn .account-short { display: inline; }
-  .account-btn { gap: 6px; padding: 0 10px 0 9px; }
+  /* on phones the buttons keep their words next to the icons, a little tighter */
+  .account-btn, .icon-btn.theme-btn { gap: 5px; padding: 0 9px 0 8px; font-size: .8125rem; }
+  .account-btn svg, .icon-btn.theme-btn svg { width: 18px; height: 18px; }
   .smart thead { display: none; }
   .smart, .smart tbody, .smart tr, .smart td { display: block; width: 100%; }
   .smart tr { display: flex; flex-direction: column; padding: 12px 16px; border-bottom: 1px solid var(--line); }
