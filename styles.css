@@ -826,6 +826,7 @@ select:hover, input:hover { border-color: var(--primary); }
 .entry.has-conflict::before { background: repeating-linear-gradient(var(--change) 0 6px, var(--danger) 6px 12px); }
 .admin-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .admin-bar p { margin: 0; flex: 1 1 320px; }
+.admin-bar .demo-note { flex-basis: 100%; order: 3; font-weight: 700; color: var(--warn); }
 .week.one-day { grid-template-columns: minmax(0, 640px); }
 #span-field, #date-field { flex: 0 0 auto; }
 

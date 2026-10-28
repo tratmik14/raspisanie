@@ -1,5 +1,5 @@
-// Связь с сервером правок (apps-script/Code.gs). Без адреса сервера на этом компьютере
-// или по ссылке с ?demo=1 работает демо-режим: тот же Code.gs запускается в браузере (gas-sim.js),
+// Связь с сервером правок (apps-script/Code.gs). Пока адрес сервера в config.js не указан,
+// админка работает в демо-режиме: тот же Code.gs запускается в браузере (gas-sim.js),
 // и правки, история и журнал живут только в этом браузере.
 (function () {
   'use strict';
@@ -7,8 +7,16 @@
   var CFG = window.SCHEDULE_CONFIG || {};
   var SESSION_KEY = 'raspisanie.admin.v1';
   var url = String(CFG.adminApi || '').trim();
-  var demo = !url && !!window.RaspSim && (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) || /[?&]demo=1(&|$)/.test(location.search));
-  var mode = url ? 'live' : demo ? 'demo' : 'off';
+  var mode = url ? 'live' : window.RaspSim ? 'demo' : 'off';
+  var DEMO_BOOK = 'raspisanie.demo.book.v2';
+  // a visitor who never signed in to the demo has nothing in it, so the demo engine is not even loaded
+  var EMPTY = {
+    state: { ok: true, edits: [], grafik: [], exams: [], full: false },
+    edits: { ok: true, edits: [], full: false },
+    history: { ok: true, items: [], full: false },
+    tableJournal: { ok: true, items: [], full: false }
+  };
+  function demoStarted() { try { return !!localStorage.getItem(DEMO_BOOK); } catch (e) { return false; } }
 
   function readJSON(key, fallback) {
     try { var v = JSON.parse(localStorage.getItem(key) || 'null'); return v == null ? fallback : v; } catch (e) { return fallback; }
@@ -47,6 +55,7 @@
     if (mode === 'off') return Promise.reject(new Error('Сервер правок не подключён'));
     var payload = Object.assign({ action: action }, body || {});
     if (session && session.token && payload.token == null) payload.token = session.token;
+    if (mode === 'demo' && !payload.token && EMPTY[action] && !demoStarted()) return Promise.resolve(EMPTY[action]);
     return (payload.token ? post(payload) : get(payload)).then(checked);
   }
   function admin(action, body) { return call(action, Object.assign({ token: session ? session.token : '' }, body || {})); }

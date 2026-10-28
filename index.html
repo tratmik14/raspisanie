@@ -112,6 +112,7 @@
     <main class="stack" id="view-lessons" role="tabpanel" aria-labelledby="tab-lessons">
       <div class="admin-bar" id="admin-bar" hidden>
         <p>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить, перенести её или поставить ещё одну пару в это же время. На свободное время пару ставит кнопка «Добавить пару».</p>
+        <p class="demo-note" id="demo-note" hidden>Демо-режим: правки сохраняются только в этом браузере, другие посетители их не видят. Чтобы правки видели все, подключите сервер админки (README, раздел «Как подключить»).</p>
         <button type="button" class="btn btn-small" id="bulk-open">Массовая замена</button>
       </div>
       <section class="ribbon" id="ribbon" hidden aria-label="Учебный год группы по неделям"></section>
@@ -334,7 +335,7 @@
     <form id="login-form" novalidate>
       <h2 id="login-title">Вход для администратора</h2>
       <p class="hint">После входа у каждой пары появится карандаш. Замены, отмены и переносы сразу увидят все, кто открыл расписание.</p>
-      <p class="hint demo-note" id="login-demo" hidden>Демо-режим: логин demo, пароль demo. Правки сохраняются только в этом браузере.</p>
+      <p class="hint demo-note" id="login-demo" hidden>Сервер админки ещё не подключён, поэтому вход работает в демо-режиме: логин demo, пароль demo. Правки сохраняются только в этом браузере и не видны другим.</p>
       <label class="field"><span class="label">Логин</span><input type="text" id="login-name" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
       <label class="field"><span class="label">Пароль</span><input type="password" id="login-pass" name="password" autocomplete="current-password" required></label>
       <p class="error" id="login-error" role="alert"></p>
