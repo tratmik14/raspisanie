@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.4';
+  var SITE_VERSION = '3.5';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -2368,23 +2368,28 @@
     if (!g) { box.innerHTML = controls + '<p class="empty">Выберите группу, чтобы открыть разворот зачётной книжки.</p>'; return; }
     if (PLAN.status === 'loading') { box.innerHTML = controls + '<p class="empty">Загружаю учебный план…</p>'; return; }
     if (!plan) { box.innerHTML = controls + '<p class="empty">Для группы ' + esc(g) + ' на листе «' + esc(CFG.planSheet) + '» нет учебного плана, поэтому список экзаменов и зачётов взять неоткуда.</p>'; return; }
-    var exams = [], credits = [];
+    var exams = [], diffs = [], credits = [];
     plan.subjects.forEach(function (sj) {
       var f = sj.form[half - 1];
       if (!f) return;
       var item = { s: sj, f: f, hours: half === 1 ? sj.s1 : sj.s2, rec: findExam(g, sj.name, half) };
-      if (f === 'Э') exams.push(item); else if (f === 'ДЗ' || f === 'З' || f === 'ЗаО') credits.push(item);
+      if (f === 'Э') exams.push(item); else if (f === 'ДЗ' || f === 'ЗаО') diffs.push(item); else if (f === 'З') credits.push(item);
     });
-    function page(title, list) {
-      return '<section class="book-page"><h3>' + esc(title) + '</h3>' + (list.length ? '<table class="book-table"><thead><tr><th scope="col">№</th><th scope="col">Дисциплина</th><th scope="col" class="n">Часов</th>' +
+    // no grades in the record book: a «З» or «ДЗ» next to a subject reads like a mark, so the kind of credit is a subheading
+    function page(title, parts) {
+      parts = parts.filter(function (p) { return p.list.length; });
+      return '<section class="book-page"><h3>' + esc(title) + '</h3>' + (parts.length ? parts.map(function (p) { return (p.sub ? '<h4 class="book-sub">' + esc(p.sub) + '</h4>' : '') + bookTable(p.list); }).join('') : '<p class="hint">В этом семестре по плану нет.</p>') + '</section>';
+    }
+    function bookTable(list) {
+      return '<table class="book-table"><thead><tr><th scope="col">№</th><th scope="col">Дисциплина</th><th scope="col" class="n">Часов</th>' +
         '<th scope="col">Дата</th><th scope="col">Преподаватель</th></tr></thead><tbody>' + list.map(function (it, i) {
-          return '<tr><td class="n">' + (i + 1) + '</td><td>' + discHTML(it.s.name) + (it.f !== 'Э' ? ' <abbr class="hint" title="' + esc(Hours.FORM_NAMES[it.f] || '') + '">' + esc(it.f) + '</abbr>' : '') + '</td>' +
+          return '<tr><td class="n">' + (i + 1) + '</td><td>' + discHTML(it.s.name) + '</td>' +
             '<td class="n">' + (it.hours || '—') + '</td><td>' + examWhen(it.rec) + '</td><td>' + esc(it.s.teacher || '—') + '</td></tr>';
-        }).join('') + '</tbody></table>' : '<p class="hint">В этом семестре по плану нет.</p>') + '</section>';
+        }).join('') + '</tbody></table>';
     }
     box.innerHTML = controls + '<div class="book" aria-label="Разворот зачётной книжки">' +
       '<div class="book-cap"><strong>Зачётная книжка</strong><span>Группа <span translate="no">' + esc(g) + '</span>' + (plan.title ? ', ' + esc(plan.title) : '') + ', ' + half + ' семестр ' + esc(GRAFIK.data ? GRAFIK.data.title.replace(/^.*?(\d{4}\/\d{4}).*$/, '$1') : '') + '</span></div>' +
-      page('Экзамены', exams) + page('Зачёты и дифференцированные зачёты', credits) + '</div>' +
+      page('Экзамены', [{ list: exams }]) + page('Зачёты и дифференцированные зачёты', [{ sub: 'Дифференцированные зачёты', list: diffs }, { sub: 'Зачёты', list: credits }]) + '</div>' +
       '<p class="hint">Список и часы — по учебному плану группы (лист «' + esc(CFG.planSheet) + '»), даты — по расписанию экзаменов. Контрольные работы в зачётку не вносятся.</p>';
   }
   function renderTeacherExams() {

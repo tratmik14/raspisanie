@@ -880,6 +880,8 @@ input[type="file"] { padding: 8px 0; }
 .book-table th:nth-child(4) { width: 7.6em; }
 .book-table th:nth-child(5) { width: 9.6em; }
 .book-table td { overflow-wrap: break-word; }
+.book-sub { margin: 16px 0 6px; font-size: .8125rem; font-weight: 800; color: var(--fg-2); }
+.book-page h3 + .book-sub { margin-top: 0; }
 .book-table th { text-align: left; font-size: .75rem; color: var(--fg-3); font-weight: 700; padding: 4px 6px; border-bottom: 1.5px solid var(--line-strong); }
 .book-table td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .book-table .n { text-align: right; width: 1%; white-space: nowrap; }
