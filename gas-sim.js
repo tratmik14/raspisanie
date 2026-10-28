@@ -133,7 +133,7 @@
   var server = null;
   function load() {
     if (server) return server;
-    server = fetch('apps-script/Code.gs?v=3.1', { cache: 'no-cache' }).then(function (r) {
+    server = fetch('apps-script/Code.gs?v=3.2', { cache: 'no-cache' }).then(function (r) {
       if (!r.ok) throw new Error('Не удалось загрузить apps-script/Code.gs для демо-режима');
       return r.text();
     }).then(function (code) {

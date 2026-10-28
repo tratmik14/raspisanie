@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.1';
+  var SITE_VERSION = '3.2';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -2898,6 +2898,66 @@
     savePrefs();
     writeUrl();
     syncRoving();
+    animateEntrance();
+    queueThumbs();
+  }
+  // ---------- motion ----------
+  var REDUCED = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+  // the chosen option of a switch and the open tab sit on one plate that slides, so a choice moves instead of blinking
+  var thumbFrame = 0;
+  function syncThumbs() {
+    thumbFrame = 0;
+    Array.prototype.forEach.call(document.querySelectorAll('.seg, .views'), function (g) {
+      var t = g.querySelector(':scope > .seg-thumb');
+      if (!g.offsetWidth) { if (t) t.removeAttribute('data-on'); return; }
+      if (!t) {
+        t = document.createElement('span');
+        t.className = 'seg-thumb';
+        t.setAttribute('aria-hidden', 'true');
+        g.insertBefore(t, g.firstChild);
+        g.classList.add('has-thumb');
+      }
+      var on = Array.prototype.filter.call(g.querySelectorAll('[aria-checked="true"], [aria-selected="true"]'), function (b) { return b.offsetWidth; })[0];
+      if (!on) { t.removeAttribute('data-on'); return; }
+      // a plate that was hidden appears in place instead of flying in from where it was
+      var jump = !t.hasAttribute('data-on');
+      if (jump) t.classList.add('no-anim');
+      t.style.setProperty('--x', on.offsetLeft + 'px');
+      t.style.setProperty('--y', on.offsetTop + 'px');
+      t.style.setProperty('--w', on.offsetWidth + 'px');
+      t.style.setProperty('--h', on.offsetHeight + 'px');
+      t.setAttribute('data-on', '');
+      if (jump) { void t.offsetWidth; t.classList.remove('no-anim'); }
+    });
+  }
+  // a timer, not a frame callback: frames pause in background tabs, and the plates must be in place when the tab shows
+  function queueThumbs() { if (!thumbFrame) thumbFrame = setTimeout(syncThumbs, 0); }
+  // when the page starts showing something else, its blocks rise in one after another;
+  // the minute-by-minute refresh of the same page does not replay it
+  var ENTER = '.dcard, .tablebox, .hsum, .ribbon, .now, .reminder, .empty, .book, .tdiff, .guards, .course, .admin-bar';
+  var enterKey = '', enterView = '', enterTimer = 0;
+  function stopEntrance() {
+    Array.prototype.forEach.call(document.querySelectorAll('.is-entering'), function (el) { el.classList.remove('is-entering'); });
+  }
+  function animateEntrance() {
+    var view = $('view-' + state.view);
+    var blocks = Array.prototype.filter.call(view.querySelectorAll(ENTER), function (b) { return b.offsetParent !== null; });
+    var main = blocks.filter(function (b) { return b.matches('.dcard, .tablebox, .hsum, .book, .course, .empty'); }).length;
+    var key = [state.view, state.mode, state.group, state.teacher, state.week, state.span, state.day, state.half,
+      state.exPage, state.exTeacher, state.bookGroup, state.bookHalf, isAdmin(), main].join('|');
+    if (key === enterKey) return;
+    enterKey = key;
+    if (REDUCED.matches) return;
+    stopEntrance();
+    blocks.forEach(function (b, i) { b.style.setProperty('--i', Math.min(i, 10)); });
+    Array.prototype.forEach.call(view.querySelectorAll('.rw'), function (b, i) { b.style.setProperty('--k', i); });
+    var els = [view];
+    if (enterView !== state.view) els.push(document.querySelector('.headline'));
+    enterView = state.view;
+    void view.offsetWidth;
+    els.forEach(function (el) { el.classList.add('is-entering'); });
+    clearTimeout(enterTimer);
+    enterTimer = setTimeout(stopEntrance, 1800);
   }
   // ARIA tabs and radio groups: Tab reaches the chosen button, arrows move between the rest
   var ROVE = '[role="tab"], [role="radio"]';
@@ -3118,7 +3178,13 @@
   $('theme-btn').addEventListener('click', function () { renderThemes(); $('theme-dialog').showModal(); });
   $('theme-list').addEventListener('click', function (e) {
     var b = e.target.closest('[data-theme-pick]');
-    if (b) applyTheme(b.getAttribute('data-theme-pick'));
+    if (b) {
+      var pick = b.getAttribute('data-theme-pick'), done = false;
+      var apply = function () { if (!done) { done = true; applyTheme(pick); } };
+      // the old and new themes crossfade; if the browser cannot draw the crossfade soon, the theme simply switches
+      if (document.startViewTransition && !REDUCED.matches) { document.startViewTransition(apply); setTimeout(apply, 400); }
+      else apply();
+    }
   });
   $('ed-kind').addEventListener('click', function (e) {
     var b = e.target.closest('button');
@@ -3394,6 +3460,10 @@
     setInterval(function () { if (state.view === 'lessons' && !document.querySelector('dialog[open]')) render(); }, 60000);
     // new replacements from the admins show up without reloading the page
     setInterval(function () { if (!document.hidden && !document.querySelector('dialog[open]')) loadEdits(); }, 180000);
+    // the sliding plates follow every change of choice, a dialog opening, the fonts arriving and the window size
+    if (window.MutationObserver) new MutationObserver(queueThumbs).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-checked', 'aria-selected', 'hidden', 'open'] });
+    window.addEventListener('resize', queueThumbs);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(queueThumbs);
     if (wantLogin) openAdmin();
     // when the site is opened from this computer, expose the data for checks in the console
     if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {

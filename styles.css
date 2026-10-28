@@ -8,7 +8,7 @@
   --hand: "Caveat", "Segoe Print", cursive;
   --radius: 12px;
   --radius-sm: 8px;
-  --ease: 180ms ease;
+  --ease: 180ms cubic-bezier(.2, .7, .2, 1);
   --shadow: 0 18px 48px rgba(10, 20, 40, .22);
 
   --wT: #e6edf3;
@@ -921,10 +921,11 @@ input[type="file"] { padding: 8px 0; }
   border-radius: 12px;
   font-weight: 600;
   box-shadow: var(--shadow);
-  animation: toast-in 220ms ease;
+  width: max-content;
+  animation: toast-in 380ms var(--spring);
 }
 .toast.is-error { background: var(--danger); color: #fff; }
-@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 16px) scale(.96); } }
 
 @media (max-width: 1100px) {
   .sysinfo span { display: none; }
@@ -1023,4 +1024,104 @@ input[type="file"] { padding: 8px 0; }
 /* Very narrow phones: the logo already names the portal, the buttons need the room */
 @media (max-width: 359px) {
   .portal { visibility: hidden; }
+}
+
+/* Motion: buttons answer the pointer, the chosen option slides, new content rises in.
+   Only transform and opacity move; «уменьшить движение» in the system switches it off (see above). */
+:root {
+  --out: cubic-bezier(.22, .8, .24, 1);
+  --spring: cubic-bezier(.34, 1.45, .5, 1);
+  --glow: color-mix(in srgb, var(--primary) 34%, transparent);
+}
+
+/* Buttons: a small lift on hover, a press on click */
+.btn, .chip, .icon-btn, .account-btn, .pair-edit, .theme-opt, .fav button, .seg button, .views button {
+  transition: transform 180ms var(--out), box-shadow 220ms var(--out), background-color var(--ease), border-color var(--ease), color var(--ease), filter var(--ease);
+}
+.btn svg, .icon-btn svg, .account-btn svg, .pair-edit svg { transition: transform 260ms var(--spring); }
+@media (hover: hover) {
+  .btn:not([disabled]):not(.btn-quiet):hover, .chip:hover, .theme-opt:hover { transform: translateY(-2px); box-shadow: 0 8px 18px -10px var(--glow), 0 2px 4px -2px var(--glow); }
+  .btn-primary:not([disabled]):hover { box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--primary) 75%, transparent); }
+  .icon-btn:hover, .account-btn:hover { transform: translateY(-1px); }
+  #theme-btn:hover svg { transform: rotate(-24deg) scale(1.06); }
+  .account-btn:hover svg { transform: translateY(-1px) rotate(-8deg); }
+  .pair-edit:hover { transform: scale(1.1); box-shadow: 0 6px 14px -6px var(--glow); }
+  .pair-edit:hover svg { transform: rotate(-14deg); }
+  #wk-prev:not([disabled]):hover svg { transform: translateX(-3px); }
+  #wk-next:not([disabled]):hover svg { transform: translateX(3px); }
+  .btn-quiet:not([disabled]):hover svg { transform: scale(1.12); }
+  .seg button:not([aria-checked="true"]):hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+  .views button:not([aria-selected="true"]):hover { box-shadow: inset 0 -3px 0 var(--line-strong); }
+}
+.btn:not([disabled]):active, .chip:active, .icon-btn:active, .account-btn:active, .theme-opt:active, .fav button:active, .seg button:active, .views button:active {
+  transform: scale(.95);
+  box-shadow: none;
+  transition-duration: 90ms;
+}
+.pair-edit:active { transform: scale(.9); transition-duration: 90ms; }
+
+/* The main button of a form: a soft glint runs across it on hover */
+.btn-primary { position: relative; overflow: hidden; isolation: isolate; }
+.btn-primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .38) 48%, rgba(255, 255, 255, .38) 52%, transparent 70%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .btn-primary:not([disabled]):hover::after { transform: translateX(120%); transition: transform 700ms var(--out); }
+}
+
+/* Switches and tabs: one plate (app.js adds it) slides to the chosen option */
+.seg, .views { position: relative; }
+.seg-thumb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--w, 0);
+  height: var(--h, 0);
+  transform: translate(var(--x, 0), var(--y, 0));
+  border-radius: 9px;
+  background: var(--primary);
+  box-shadow: 0 6px 14px -8px color-mix(in srgb, var(--primary) 85%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 380ms var(--spring), width 380ms var(--spring), height 300ms var(--out), opacity 160ms ease;
+}
+.seg-thumb[data-on] { opacity: 1; }
+.seg-thumb.no-anim { transition: none; }
+.has-thumb button { position: relative; z-index: 1; }
+.seg.has-thumb button[aria-checked="true"] { background: transparent; }
+.views .seg-thumb { top: auto; bottom: 0; height: 3px; transform: translateX(var(--x, 0)); border-radius: 3px 3px 0 0; box-shadow: none; }
+.views.has-thumb button[aria-selected="true"] { border-bottom-color: transparent; }
+
+/* New content: when the page starts showing something else, its blocks rise in one after another */
+@keyframes rise { from { opacity: 0; transform: translateY(18px) scale(.98); } }
+@keyframes title-in { from { opacity: 0; transform: translateY(8px); filter: blur(4px); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
+@keyframes grow-y { from { opacity: 0; transform: scaleY(.15); } }
+@keyframes pop { from { opacity: 0; transform: scale(.4); } }
+@keyframes fade { from { opacity: 0; } }
+.is-entering :is(.dcard, .tablebox, .hsum, .ribbon, .now, .reminder, .empty, .book, .tdiff, .guards, .course, .admin-bar) {
+  animation: rise 560ms var(--out) both;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+.headline.is-entering h1, .headline.is-entering .lede { animation: title-in 480ms var(--out) both; }
+.headline.is-entering .lede { animation-delay: 70ms; }
+/* the year ribbon grows week by week, the hour bars fill up, the admin pencils pop in */
+.is-entering .rw { animation: grow-y 520ms var(--spring) both; transform-origin: 50% 100%; animation-delay: calc(var(--i, 0) * 55ms + var(--k, 0) * 9ms + 120ms); }
+.is-entering :is(.bar-done, .bar-all) { animation: grow-x 900ms var(--out) both; transform-origin: 0 50%; animation-delay: calc(var(--i, 0) * 55ms + 200ms); }
+.is-entering .pair-edit { animation: pop 420ms var(--spring) both; animation-delay: calc(var(--i, 0) * 55ms + 260ms); }
+.tab-count:not(:empty) { animation: pop 420ms var(--spring); }
+
+/* Dialogs spring up, the theme changes with a soft crossfade */
+@keyframes dlg-in { from { opacity: 0; transform: translateY(14px) scale(.96); } }
+.dlg[open] { animation: dlg-in 320ms var(--spring); }
+.dlg[open]::backdrop { animation: fade 220ms ease; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 420ms; }
+@media (prefers-reduced-motion: reduce) {
+  .dlg[open]::backdrop { animation: none; }
 }
