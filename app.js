@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.0';
+  var SITE_VERSION = '3.1';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -687,6 +687,7 @@
   var state = { view: 'lessons', mode: 'group', group: '', teacher: '', week: '', half: null, span: 'week', day: '', exPage: 'list', bookGroup: '', bookHalf: 0, exTeacher: '' };
   var ex = exDefaults();
   var pendingHash = ''; // an old #group link that waits for the group list
+  var wantLogin = false; // #admin opens the login right away
   try {
     var saved = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
     if (saved && typeof saved === 'object') {
@@ -765,7 +766,8 @@
     if (p.get('embed') === '1') document.documentElement.classList.add('embed');
     var h = '';
     try { h = decodeURIComponent(location.hash.replace(/^#/, '')).toLowerCase(); } catch (e) { h = ''; }
-    if (h) pendingHash = h;
+    if (h === 'admin') wantLogin = true;
+    else if (h) pendingHash = h;
   }
   function resolvePendingHash() {
     var h = pendingHash;
@@ -2580,8 +2582,9 @@
   // ---------- admin: sign-in, the pair editor, password ----------
   function renderAccount() {
     var u = Api.user(), btn = $('account-btn');
-    btn.hidden = Api.mode === 'off';
     $('account-label').textContent = u ? u.name : 'Вход для администратора';
+    $('account-short').textContent = u ? 'Админ' : 'Вход';
+    $('foot-admin').textContent = u ? 'Меню администратора' : 'Вход для администратора';
     btn.classList.toggle('is-in', !!u);
     btn.setAttribute('aria-label', u ? 'Администратор ' + u.name + ': меню' : 'Войти как администратор');
     document.documentElement.classList.toggle('is-admin', !!u);
@@ -3056,7 +3059,9 @@
   });
   $('h-empty-action').addEventListener('click', retry);
 
-  $('account-btn').addEventListener('click', function () { if (Api.user()) openAccount(); else openLogin(); });
+  function openAdmin() { if (Api.user()) openAccount(); else openLogin(); }
+  $('account-btn').addEventListener('click', openAdmin);
+  $('foot-admin').addEventListener('click', function (e) { e.preventDefault(); openAdmin(); });
   $('login-cancel').addEventListener('click', function () { $('login-dialog').close(); });
   $('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -3389,6 +3394,7 @@
     setInterval(function () { if (state.view === 'lessons' && !document.querySelector('dialog[open]')) render(); }, 60000);
     // new replacements from the admins show up without reloading the page
     setInterval(function () { if (!document.hidden && !document.querySelector('dialog[open]')) loadEdits(); }, 180000);
+    if (wantLogin) openAdmin();
     // when the site is opened from this computer, expose the data for checks in the console
     if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
       window.__raspisanie = { DB: DB, net: net, ensureAll: ensureAll, get EX() { return EX; }, applyExams: applyExams, get EDITS() { return EDITS; }, get PLAN() { return PLAN; }, get GRAFIK() { return GRAFIK; }, countFor: countFor, planFor: planFor, half2Of: half2Of, get GOV() { return GOV; }, get TJ() { return TJ; }, refreshAll: refreshAll, diffRows: diffRows, examsFromTables: examsFromTables, tablesFromHtml: tablesFromHtml, readExamFile: readExamFile, showExamPreview: showExamPreview, openExamImport: openExamImport };

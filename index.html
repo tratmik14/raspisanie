@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=3.1">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -30,9 +30,10 @@
         <button type="button" class="icon-btn" id="theme-btn" aria-haspopup="dialog" aria-label="Тема оформления" title="Тема оформления">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1.3" fill="currentColor"/><circle cx="10.5" cy="7" r="1.3" fill="currentColor"/><circle cx="15.5" cy="7.5" r="1.3" fill="currentColor"/></svg>
         </button>
-        <button type="button" class="account-btn" id="account-btn" aria-haspopup="dialog" hidden>
+        <button type="button" class="account-btn" id="account-btn" aria-haspopup="dialog" aria-label="Войти как администратор">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
           <span id="account-label">Вход для администратора</span>
+          <span class="account-short" id="account-short" aria-hidden="true">Вход</span>
         </button>
       </div>
     </div>
@@ -325,6 +326,7 @@
       <p class="foot-links">
         <a href="https://luberteh.ru/" target="_blank" rel="noopener noreferrer">Сайт техникума</a>
         <a href="https://yandex.ru/maps/?text=%D0%BB%D1%8E%D0%B1%D0%B5%D1%80%D0%B5%D1%86%D0%BA%D0%B8%D0%B9%20%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D1%83%D0%BC%20%D0%BA%D0%BE%D1%80%D0%BF%D1%83%D1%81&ll=37.969070%2C55.638299&z=12" target="_blank" rel="noopener noreferrer">Корпуса на карте</a>
+        <a href="#admin" id="foot-admin">Вход для администратора</a>
       </p>
       <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы, замены вносят администраторы техникума. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
       <p class="sysline" id="sysline"></p>
@@ -513,10 +515,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js"></script>
-  <script src="hours.js"></script>
-  <script src="gas-sim.js"></script>
-  <script src="api.js"></script>
-  <script src="app.js"></script>
+  <script src="config.js?v=3.1"></script>
+  <script src="hours.js?v=3.1"></script>
+  <script src="gas-sim.js?v=3.1"></script>
+  <script src="api.js?v=3.1"></script>
+  <script src="app.js?v=3.1"></script>
 </body>
 </html>

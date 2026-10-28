@@ -306,8 +306,9 @@ abbr[title] { text-decoration: underline dotted; cursor: help; }
   flex: none;
 }
 .icon-btn { width: 40px; }
-.account-btn { padding: 0 14px 0 12px; font-size: .875rem; font-weight: 600; max-width: 230px; }
+.account-btn { padding: 0 14px 0 12px; font-size: .875rem; font-weight: 600; max-width: 250px; }
 .account-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-btn .account-short { display: none; }
 .icon-btn:hover, .account-btn:hover { background: rgba(255, 255, 255, .24); }
 .account-btn.is-in { background: var(--on-topbar); color: var(--topbar); border-color: transparent; }
 
@@ -940,13 +941,16 @@ input[type="file"] { padding: 8px 0; }
 }
 /* Phones: logo only on the left (ТЗ БП 1.1), table rows become cards (ТЗ БП 1.5) */
 @media (max-width: 767px) {
-  .topbar-inner { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .topbar-inner { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; }
   .brand-name { display: none; }
   .brand img { height: 40px; }
-  .portal { font-size: 1.0625rem; }
+  .portal { font-size: clamp(.8125rem, 3.8vw, 1.0625rem); overflow: hidden; text-overflow: ellipsis; }
+  .top-actions { gap: 8px; }
   .sysinfo { display: none; }
-  .account-btn span { display: none; }
-  .account-btn { width: 40px; padding: 0; }
+  /* on phones the button keeps a short word next to the lock, so it reads as a login and not a decoration */
+  .account-btn #account-label { display: none; }
+  .account-btn .account-short { display: inline; }
+  .account-btn { gap: 6px; padding: 0 10px 0 9px; }
   .smart thead { display: none; }
   .smart, .smart tbody, .smart tr, .smart td { display: block; width: 100%; }
   .smart tr { display: flex; flex-direction: column; padding: 12px 16px; border-bottom: 1px solid var(--line); }
@@ -1014,4 +1018,9 @@ input[type="file"] { padding: 8px 0; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+/* Very narrow phones: the logo already names the portal, the buttons need the room */
+@media (max-width: 359px) {
+  .portal { visibility: hidden; }
 }
