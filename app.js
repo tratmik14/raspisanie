@@ -5,7 +5,7 @@
   var DAY = 864e5;
   var PREFS_KEY = 'raspisanie.prefs.v1';
   var CACHE_KEY = 'raspisanie.sheet.v1:';
-  var CONCURRENCY = 6;
+  var CONCURRENCY = 4;
   var XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
   var MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.6';
+  var SITE_VERSION = '3.7';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -23,10 +23,11 @@
   var GOOD_KEY = 'raspisanie.good.v1';
   var DIFF_KEY = 'raspisanie.diff.v1:';
   var SOURCES_KEY = 'raspisanie.sources.v1';
-  var VIEWS = ['lessons', 'hours', 'grafik', 'exams', 'history'];
+  var VIEWS = ['lessons', 'hours', 'balance', 'grafik', 'exams', 'history'];
   var VIEW_TITLES = {
     lessons: ['Расписание занятий', 'Пары на каждую неделю семестра: для группы или для преподавателя.'],
     hours: ['Часы по предметам', 'Сколько часов по плану, сколько уже проведено и сколько осталось.'],
+    balance: ['Вычитка часов', 'Сколько пар не хватает или лишние до конца семестра. Пересчитывается сразу, как только пару добавили, отменили или перенесли.'],
     grafik: ['График учебного процесса', 'Теория, практика, сессии и каникулы каждой группы по неделям учебного года.'],
     exams: ['Расписание экзаменов', 'Экзамены, зачёты и пересдачи по группам и преподавателям.'],
     history: ['Изменения в расписании', 'Замены и отмены пар, которые внесли администраторы, и журнал всех правок.']
@@ -144,17 +145,34 @@
 
   // ---------- Google Sheets ----------
   // headers=0 keeps Google from gluing the top rows of a sheet into one header row
-  function sheetUrl(name) {
+  // range limits a group sheet to its timetable columns: the side tables of the head of studies
+  // («Пары», «Часы», the plan) stay out, so the answer is smaller and Google builds it faster.
+  function sheetUrl(name, range) {
     return 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.sheetId) +
-      '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name);
+      '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name) + (range ? '&range=' + encodeURIComponent(range) : '');
   }
-  function fetchSheet(name) {
-    return fetch(sheetUrl(name), { cache: 'no-store' }).then(function (res) {
-      var type = res.headers.get('content-type') || '';
-      if (!res.ok || type.indexOf('csv') < 0) throw new Error('Google Sheets answered ' + res.status + ' ' + type);
-      return res.text();
-    });
+  // Google answers 35 sheets at once with an occasional error or 429; such a sheet is asked again
+  // twice with a pause, so one hiccup no longer leaves a group without its timetable.
+  function fetchSheet(name, range) {
+    var tries = 0;
+    function attempt() {
+      return fetch(sheetUrl(name, range), { cache: 'no-store' }).then(function (res) {
+        var type = res.headers.get('content-type') || '';
+        if (!res.ok || type.indexOf('csv') < 0) {
+          var err = new Error('Google Sheets answered ' + res.status + ' ' + type);
+          err.final = res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429);
+          throw err;
+        }
+        return res.text();
+      }).catch(function (err) {
+        tries++;
+        if (err.final || tries >= 3) throw err;
+        return new Promise(function (r) { setTimeout(r, 700 * tries * tries + Math.random() * 400); }).then(attempt);
+      });
+    }
+    return attempt();
   }
+  function groupSheetRange() { return CFG.groupSheetRange == null ? 'A:I' : String(CFG.groupSheetRange); }
   function cacheGet(name) {
     try {
       var v = JSON.parse(localStorage.getItem(CACHE_KEY + name) || 'null');
@@ -247,9 +265,22 @@
     flush();
     return out;
   }
+  // «Неделя 12» in one of the first columns
+  function weekLabelOf(row) {
+    for (var c = 0; c < 3 && c < row.length; c++) {
+      var m = /^\s*неделя\s*(\d{1,2})\s*$/i.exec(String(row[c] == null ? '' : row[c]));
+      if (m) return +m[1];
+    }
+    return 0;
+  }
   // Splits a sheet into week blocks: a row of dates, a row of weekday names, then one row per pair.
+  // Real sheets are not always tidy, and nothing that is on the sheet should get lost:
+  // - a weekday row typed twice in a row (ПКп-24) is one week, not an empty week and a lost one;
+  // - a week without its row of dates (ТМ-26, week 3; ОДЛу-24, weeks 19–36) gets its Monday from its
+  //   «Неделя N» label, else it follows the week before. Such weeks are counted in `guessed`.
   function scanLessonSheet(rows) {
     var blocks = [], cur = null, dayCols = null, timeCol = -1, pendingMonday = null, dateFresh = false, hasDates = false;
+    var label = 0, ref = null, lastMonday = null, guessed = 0;
     rows.forEach(function (raw) {
       var row = raw.slice(0, 9);
       var wds = [], days = [], pw = 0;
@@ -258,17 +289,36 @@
         var d = cellDayUtc(v); if (d != null) days.push(d);
         if (c < 2 && !pw) pw = parityOf(v);
       });
+      var wl = weekLabelOf(row);
+      if (wl) label = wl;
       if (days.length >= 3) {
         pendingMonday = modeMonday(days); dateFresh = true; hasDates = true;
+        if (wl && !ref) ref = { n: wl, ms: pendingMonday };
         return;
       }
       if (wds.length >= 3) {
-        dayCols = {};
-        wds.forEach(function (x) { if (x[1] < 6) dayCols[x[0]] = x[1]; });
+        var cols = {};
+        wds.forEach(function (x) { if (x[1] < 6) cols[x[0]] = x[1]; });
+        if (cur && !cur.cells.length && !dateFresh && !label) {
+          dayCols = cols;
+          timeCol = wds[0][0] - wds[0][1] - 1;
+          if (pw) cur.votes[pw]++;
+          return;
+        }
+        dayCols = cols;
         timeCol = wds[0][0] - wds[0][1] - 1;
-        cur = { monday: dateFresh ? pendingMonday : null, votes: [0, 0, 0], cells: [] };
+        var monday = dateFresh ? pendingMonday : null, guess = false;
+        if (monday == null && hasDates) {
+          if (label && ref) monday = ref.ms + (label - ref.n) * 7 * DAY;
+          else if (lastMonday != null) monday = lastMonday + 7 * DAY;
+          guess = monday != null;
+          if (guess) guessed++;
+        }
+        cur = { monday: monday, votes: [0, 0, 0], cells: [], guessed: guess };
+        if (monday != null) lastMonday = monday;
         blocks.push(cur);
         dateFresh = false;
+        label = 0;
         if (pw) cur.votes[pw]++;
         return;
       }
@@ -282,7 +332,7 @@
         if (entries.length) cur.cells.push({ wd: dayCols[col], slot: slot, entries: entries });
       });
     });
-    return { blocks: blocks, hasDates: hasDates };
+    return { blocks: blocks, hasDates: hasDates, guessed: guessed };
   }
 
   // ---------- reading the exam sheet (ТЗ БП 5.5: columns A–H) ----------
@@ -687,7 +737,7 @@
   // ---------- state and the address bar (ТЗ БП 1.5: filters live in query parameters) ----------
   // span: 'week' | 'today' | 'tomorrow' | 'day' (a date from the calendar, in state.day)
   // exPage: 'list' | 'book' (зачётка) | 'teacher'
-  var state = { view: 'lessons', mode: 'group', group: '', teacher: '', week: '', half: null, span: 'week', day: '', exPage: 'list', bookGroup: '', bookHalf: 0, exTeacher: '' };
+  var state = { view: 'lessons', mode: 'group', group: '', teacher: '', week: '', half: null, span: 'week', day: '', exPage: 'list', bookGroup: '', bookHalf: 0, exTeacher: '', balAll: false };
   var ex = exDefaults();
   var pendingHash = ''; // an old #group link that waits for the group list
   var wantLogin = false; // #admin opens the login right away
@@ -763,6 +813,7 @@
       if (/^[012]$/.test(p.get('half') || '')) state.half = +p.get('half');
       if (p.get('span') === 'today' || p.get('span') === 'tomorrow' || p.get('span') === 'week') state.span = p.get('span');
       if (/^\d{4}-\d{2}-\d{2}$/.test(p.get('day') || '')) { state.span = 'day'; state.day = p.get('day'); }
+      if (state.view === 'balance') { state.balAll = p.get('all') === '1'; if (p.get('group')) state.mode = 'group'; }
     }
     if (p.get('embed') === '1') document.documentElement.classList.add('embed');
     var h = '';
@@ -804,6 +855,8 @@
         else if (state.week && state.week !== currentWeekIso()) p.set('week', state.week);
       }
       if (state.view === 'hours' && state.half != null) p.set('half', state.half);
+      if (state.view === 'balance' && state.balAll) { p.delete('group'); p.delete('teacher'); p.set('all', '1'); }
+      if (state.view === 'balance' && !state.balAll && state.mode === 'teacher') { p.delete('teacher'); if (state.group) p.set('group', state.group); }
     }
     if (document.documentElement.classList.contains('embed')) p.set('embed', '1');
     var qs = p.toString(), target = location.pathname + (qs ? '?' + qs : '');
@@ -837,7 +890,7 @@
   }
   function loadSheet(group) {
     net.pending++;
-    return fetchSheet(group).then(function (csv) {
+    return fetchSheet(group, groupSheetRange()).then(function (csv) {
       var scan = scanLessonSheet(parseCSV(csv)), prev = cacheGet(group);
       if (acceptSheet(group, csv, scanSize(scan), 'ни одной пары')) {
         DB.sheets[group] = { scan: scan, source: 'live', at: Date.now(), rows: [], byDay: {}, template: false };
@@ -869,8 +922,10 @@
       render();
     });
   }
-  function ensureAll() {
-    var todo = DB.groups.filter(function (g) { return !isLive(g); });
+  function ensureAll() { ensureGroups(DB.groups); }
+  // loads the given groups a few at a time; a group that failed waits for «Повторить»
+  function ensureGroups(list) {
+    var todo = list.filter(function (g) { return DB.groups.indexOf(g) >= 0 && !isLive(g) && !net.failed[g]; });
     if (!todo.length || net.bulk) return;
     todo.forEach(function (g) {
       if (!DB.sheets[g]) { var c = cacheGet(g); if (c) applySheet(g, c.csv, 'cache', c.t); }
@@ -898,10 +953,13 @@
       fillOptions();
       render();
       if ($('bulk-dialog').open) { bulkFillTeachers(); bulkPreview(); }
+      // a view that asked for more groups while this round was loading gets them now
+      ensureView();
     });
   }
   function ensureView() {
     if (state.view === 'history') { loadHistory(); loadTableJournal(); }
+    if (state.view === 'balance') { ensureGroups(balanceNeeds()); return; }
     if (state.view !== 'lessons' && state.view !== 'hours') return;
     if (state.mode === 'teacher') ensureAll();
     else if (state.group) ensureGroup(state.group);
@@ -1706,6 +1764,368 @@
   }
   function sheetTemplate(group) { return DB.sheets[group] && DB.sheets[group].template; }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+  // ---------- вычитка часов ----------
+  // For the head of studies: plan of the half against every pair that is held or still stands in the
+  // timetable up to the last day before the session, after all admin edits. Nothing here reads the
+  // «Пары / Часы» formulas of the college table: a pair added, cancelled or moved on the site
+  // changes the numbers at once (recompute → render).
+  var bal = { open: '', until: {}, wantAll: false };
+  function normGroup(g) { return String(g).toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ''); }
+  function urgentGroups() {
+    return (CFG.urgentGroups || []).map(function (u) {
+      var hit = DB.groups.filter(function (g) { return normGroup(g) === normGroup(u); })[0];
+      return hit || String(u).trim();
+    }).filter(Boolean);
+  }
+  function isUrgent(g) { return urgentGroups().some(function (u) { return normGroup(u) === normGroup(g); }); }
+  function balanceGroup() {
+    if (state.group && (!DB.groups.length || DB.groups.indexOf(state.group) >= 0)) return state.group;
+    return urgentGroups()[0] || '';
+  }
+  function balanceNeeds() {
+    if (state.balAll || bal.wantAll) return DB.groups.slice();
+    var list = urgentGroups().slice(), g = balanceGroup();
+    if (g && list.indexOf(g) < 0) list.push(g);
+    return list;
+  }
+  // Mon–Fri of the half with the letter of the PDF schedule (with the admins' corrections)
+  function halfDays(group, half) {
+    var gf = grafikFor(group);
+    if (!gf) return [];
+    var h2 = half2Of(group), out = [];
+    GRAFIK.data.weeks.forEach(function (w, i) {
+      if (half === 1 ? w >= h2 : w < h2) return;
+      for (var d = 0; d < 5; d++) out.push({ iso: isoOfUtc(utcOfIso(w) + d * DAY), c: gf.g.days[i].charAt(d) });
+    });
+    return out;
+  }
+  function pairKey(r) { return r.day + '|' + r.start + '|' + r.disc; }
+  // public holidays (ТК РФ, ст. 112) as MM-DD or YYYY-MM-DD, config.js → holidays
+  var HOLIDAYS_DEFAULT = ['01-01', '01-02', '01-03', '01-04', '01-05', '01-06', '01-07', '01-08', '02-23', '03-08', '05-01', '05-09', '06-12', '11-04'];
+  function isHoliday(iso) {
+    var list = CFG.holidays || HOLIDAYS_DEFAULT;
+    return list.indexOf(iso) >= 0 || list.indexOf(iso.slice(5)) >= 0;
+  }
+  function balanceFor(group) {
+    var sheet = DB.sheets[group];
+    if (!sheet) return null;
+    var half = currentHalf(group), h2 = half2Of(group), per = CFG.hoursPerPair || 2, today = todayISO();
+    var days = halfDays(group, half);
+    var dl = days.length ? Hours.balanceDeadline(days) : { theoryEnd: '', until: '' };
+    var covered = coverage(group, half);
+    // by default the hours are read by the end of theory in the PDF schedule: the weeks after it are
+    // practice, and a timetable stretched over them (a weekly pattern pasted to December) is not real.
+    // «Перед сессией» moves the deadline to the last day before the session, for pairs held during practice.
+    var autoUntil = dl.theoryEnd || dl.until || covered;
+    var until = bal.until[group] || autoUntil;
+    var inHalf = function (iso) { return half === 1 ? iso < h2 : iso >= h2; };
+    var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && inHalf(r.day); });
+    var holiday = {};
+    rows.forEach(function (r) { if (isHoliday(r.day) && (!until || r.day <= until)) holiday[pairKey(r)] = r.day; });
+    var counted = rows.filter(function (r) { return (!until || r.day <= until) && !isHoliday(r.day); });
+    var after = {}, onPractice = {}, types = {};
+    // whole weeks of practice only: groups with a practice day inside a theory week (СПм-25: «TUTTT»)
+    // often hold that day on another weekday than the PDF says
+    for (var w = 0; w < days.length; w += 5) {
+      var wk = days.slice(w, w + 5), letters = wk.map(function (d) { return d.c; }).join('');
+      if (!/T/.test(letters)) wk.forEach(function (d) { types[d.iso] = d.c; });
+    }
+    rows.forEach(function (r) {
+      if (until && r.day > until) after[pairKey(r)] = true;
+      else if (/[UPX]/.test(types[r.day] || '') && !Hours.isPractice(r.disc)) onPractice[pairKey(r)] = r.day;
+    });
+    var practiceDays = Object.keys(onPractice).map(function (k) { return onPractice[k]; }).sort();
+    var sum = Hours.summarize(planFor(group), Hours.countHours(counted, { today: today, nowMin: nowMinutes(), half2: h2, hoursPerPair: per }), half);
+    var b = Hours.balance(sum, per);
+    var left = 0;
+    if (days.length) left = days.filter(function (d) { return d.iso > today && d.iso <= until && d.c !== 'K' && d.c !== 'A' && d.c !== 'G' && !isHoliday(d.iso); }).length;
+    else if (until) for (var t = utcOfIso(today) + DAY; t <= utcOfIso(until); t += DAY) { var wd = new Date(t).getUTCDay(); if (wd > 0 && wd < 6 && !isHoliday(isoOfUtc(t))) left++; }
+    var holidayDays = uniq(Object.keys(holiday).map(function (k) { return holiday[k]; })).sort();
+    var weeksLeft = Math.max(1, Math.ceil(left / 5));
+    b.lines.forEach(function (l) { l.perWeek = l.status === 'add' ? Math.ceil(l.pairs / weeksLeft) : 0; });
+    return {
+      group: group, half: half, plan: planFor(group), lines: b.lines, total: b.total, theoryEnd: dl.theoryEnd, until: until, autoUntil: autoUntil, sessionUntil: dl.until, passed: !!until && until < today,
+      left: left, covered: covered, after: Object.keys(after).length, onPractice: practiceDays.length, practiceFrom: practiceDays[0] || '', onHoliday: Object.keys(holiday).length, holidayDays: holidayDays, edits: EDITS.list.filter(function (e) { return e.group === group; }).length,
+      guessed: sheet.scan.guessed || 0, template: sheet.template, source: sheet.source, at: sheet.at
+    };
+  }
+  function pairsWord(n) { return count(n, 'пара', 'пары', 'пар'); }
+  function signed(n) { return n > 0 ? '+' + n : n < 0 ? '−' + (-n) : '0'; }
+  function balTone(b) { return b.total.add > 0 ? 'bad' : b.total.cut > 0 ? 'warn' : 'good'; }
+  function pairsAcc(n) { return count(n, 'пару', 'пары', 'пар'); }
+  // «12 пар стоят», «1 пара стоит»
+  function pairsStand(n) { return pairsWord(n) + (plural(n, 'x', 'y', 'z') === 'x' ? ' стоит' : ' стоят'); }
+  function balCardHTML(g, cur) {
+    var b = balanceFor(g), on = g === cur ? ' is-on' : '';
+    var inner;
+    if (!b) {
+      inner = '<span class="bal-card-big">' + (net.failed[g] ? 'не загрузилась' : 'загружаю…') + '</span>';
+      return '<button type="button" class="bal-card' + on + '" data-bal-group="' + esc(g) + '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span><span class="bal-tag">горит</span></span>' + inner + '</button>';
+    }
+    var t = b.total, tone = balTone(b);
+    var big = !b.plan ? '—' : t.add ? '+' + t.add : t.cut ? '−' + t.cut : '0';
+    var cap = !b.plan ? 'нет учебного плана' : t.add ? plural(t.add, 'пару', 'пары', 'пар') + ' добавить' : t.cut ? plural(t.cut, 'пару', 'пары', 'пар') + ' снять' : 'часы сходятся';
+    var sub = [];
+    if (t.add && t.cut) sub.push('и снять ' + pairsAcc(t.cut));
+    if (b.until) sub.push(b.passed ? 'срок вычитки прошёл ' + fmtDayMonth(b.until) : 'до ' + fmtDayMonth(b.until) + ', ' + count(b.left, 'учебный день', 'учебных дня', 'учебных дней'));
+    return '<button type="button" class="bal-card is-' + tone + on + '" data-bal-group="' + esc(g) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+      '<span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span><span class="bal-tag">горит</span></span>' +
+      '<span class="bal-card-big"><strong>' + big + '</strong> ' + esc(cap) + '</span>' +
+      (sub.length ? '<span class="bal-card-sub">' + esc(sub.join(' · ')) + '</span>' : '') + '</button>';
+  }
+  function lineTeacher(l) {
+    var t = l.teachers.filter(function (x) { return !/^вак/i.test(x); })[0];
+    if (t) return t;
+    var p = splitTeachers(String(l.planTeacher).replace(/\n/g, ',').replace(/\//g, ','))[0] || '';
+    return /^вак/i.test(p) ? '' : p;
+  }
+  function balActionHTML(b, l, i) {
+    var admin = isAdmin(), key = b.group + '|' + i;
+    if (l.status === 'add') {
+      return '<span class="bal-act is-bad">Добавить ' + pairsAcc(l.pairs) + '</span>' +
+        (b.left ? '<span class="bal-sub">≈ ' + count(l.perWeek, 'пара', 'пары', 'пар') + ' в неделю</span>' : '<span class="bal-sub">учебные дни до срока закончились</span>') +
+        (admin ? '<button type="button" class="btn btn-small" data-bal-open="' + esc(key) + ':add" aria-expanded="' + (bal.open === key + ':add') + '">Подобрать время</button>' : '');
+    }
+    if (l.status === 'cut') {
+      var per = CFG.hoursPerPair || 2, can = Math.min(l.pairs, Math.floor(l.future / per)), over = l.done - l.plan;
+      if (!can) return '<span class="bal-act is-warn">Перечитано на ' + hoursWord(-l.gap) + '</span><span class="bal-sub">пары уже проведены, снимать нечего</span>';
+      return '<span class="bal-act is-warn">Снять ' + pairsAcc(can) + '</span>' +
+        (over > 0 ? '<span class="bal-sub">и ещё ' + hoursWord(over) + ' уже проведено сверх плана</span>' : '') +
+        (admin ? '<button type="button" class="btn btn-small" data-bal-open="' + esc(key) + ':cut" aria-expanded="' + (bal.open === key + ':cut') + '">Какие снять</button>' : '');
+    }
+    if (l.status === 'ok') return '<span class="bal-act is-good">Сходится</span>';
+    if (l.status === 'practice') return '<span class="bal-act">Практика по графику</span><span class="bal-sub">идёт неделями, парами не вычитывается</span>';
+    if (l.status === 'noplan') return '<span class="bal-act is-warn">В этом семестре по плану часов нет</span>';
+    return '<span class="bal-act is-warn">Нет в учебном плане</span><span class="bal-sub">проверьте название в таблице</span>';
+  }
+  // free time of the group and of the teacher, from tomorrow to the deadline: first a pair right next to
+  // the pairs the group already has that day (no gap), then other free pairs on such days, then empty days
+  function freeSlots(b, l) {
+    var group = b.group, teacher = lineTeacher(l), out = [], today = todayISO();
+    var slots = (CFG.slots || []).map(function (x, i) { return { n: i + 1, start: normTime(x[0]), end: normTime(x[1]) }; });
+    var types = {};
+    halfDays(group, b.half).forEach(function (d) { types[d.iso] = d.c; });
+    var sheet = DB.sheets[group];
+    for (var t = utcOfIso(today) + DAY; b.until && t <= utcOfIso(b.until); t += DAY) {
+      var iso = isoOfUtc(t), wd = new Date(t).getUTCDay();
+      if (wd === 0 || isHoliday(iso)) continue;
+      var c = types[iso] || (wd === 6 ? types[isoOfUtc(t - DAY)] : '') || '';
+      if (c === 'K' || c === 'A' || c === 'G') continue;
+      var mine = (sheet.byDay[iso] || []).filter(function (r) { return !r.ghost; });
+      var busy = {}, nums = [];
+      mine.forEach(function (r) { busy[r.start] = true; var s = DB.slotByStart[r.start]; if (s) nums.push(s.n); });
+      var lo = nums.length ? Math.min.apply(null, nums) : 0, hi = nums.length ? Math.max.apply(null, nums) : 0;
+      slots.forEach(function (s) {
+        if (busy[s.start]) return;
+        if (teacher && teacherBusy(teacher, iso, s.start)) return;
+        var rank = !nums.length ? 3 : (s.n === hi + 1 || s.n === lo - 1) ? 0 : 1;
+        if (nums.length >= 4) rank++;
+        out.push({ day: iso, start: s.start, end: s.end, n: s.n, rank: rank, empty: !nums.length });
+      });
+    }
+    out.sort(function (a, b2) { return a.rank - b2.rank || (a.day < b2.day ? -1 : a.day > b2.day ? 1 : a.n - b2.n); });
+    return { teacher: teacher, list: out.slice(0, 8), total: out.length };
+  }
+  function teacherBusy(teacher, iso, start) {
+    return Object.keys(DB.sheets).some(function (g) {
+      return (DB.sheets[g].byDay[iso] || []).some(function (r) { return !r.ghost && r.start === start && splitTeachers(r.teacher).indexOf(teacher) >= 0; });
+    });
+  }
+  function lineRows(b, l) {
+    var sheet = DB.sheets[b.group], today = todayISO(), seen = {};
+    return sheet.rows.filter(function (r) {
+      if (r.ghost || l.names.indexOf(r.disc) < 0 || r.day <= today || (b.until && r.day > b.until) || isHoliday(r.day) || seen[pairKey(r)]) return false;
+      seen[pairKey(r)] = true;
+      return true;
+    }).sort(function (a, c) { return a.day < c.day ? 1 : a.day > c.day ? -1 : minutesOf(c.start) - minutesOf(a.start); });
+  }
+  function dayLabel(iso) { return ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'][isoToDate(iso).getDay()] + ', ' + fmtDayMonth(iso); }
+  function balMoreHTML(b, l, i, kind) {
+    var key = b.group + '|' + i;
+    if (kind === 'add') {
+      var fs = freeSlots(b, l), loading = net.bulk || DB.groups.some(function (g) { return !DB.sheets[g]; });
+      var head = '<p>Свободное время у группы <span class="grp" translate="no">' + esc(b.group) + '</span>' + (fs.teacher ? ' и у преподавателя ' + esc(fs.teacher) : '') + ' до ' + esc(fmtDayMonth(b.until)) + ':</p>';
+      var notes = [];
+      if (loading) notes.push(net.bulk ? 'Проверяю занятость преподавателя по всем группам: ' + net.bulk.done + ' из ' + net.bulk.total + '…' : 'Занятость преподавателя в остальных группах ещё не загружена.');
+      if (!fs.teacher) notes.push('Преподаватель не указан, его занятость не проверялась.');
+      notes.push('Первыми идут пары встык к тем, что у группы уже стоят, чтобы не было окон. Пара ставится как правка администратора: таблицу колледжа сайт не меняет.');
+      if (!fs.list.length) return head.replace(/:<\/p>$/, '') + ': свободного времени нет.</p>' + '<p class="hint">' + esc(notes.join(' ')) + '</p>';
+      return head + '<ul class="bal-slots">' + fs.list.map(function (s) {
+        return '<li><span>' + esc(dayLabel(s.day)) + ', ' + s.n + ' пара, ' + esc(s.start) + '–' + esc(s.end) + (s.empty ? ' <span class="hint">(других пар в этот день нет)</span>' : '') + '</span>' +
+          '<button type="button" class="btn btn-small btn-primary" data-bal-put="' + esc(key + '|' + s.day + '|' + s.start) + '">Поставить</button></li>';
+      }).join('') + '</ul><p class="hint">' + esc(notes.join(' ')) + (fs.total > fs.list.length ? ' Показаны 8 лучших вариантов из ' + fs.total + '.' : '') + '</p>';
+    }
+    var rows = lineRows(b, l).slice(0, l.pairs + 4);
+    if (!rows.length) return '<p>Будущих пар этого предмета до ' + esc(fmtDayMonth(b.until)) + ' нет.</p>';
+    return '<p>Последние пары предмета до ' + esc(fmtDayMonth(b.until)) + ', снять нужно ' + esc(pairsAcc(l.pairs)) + ':</p><ul class="bal-slots">' + rows.map(function (r) {
+      var s = DB.slotByStart[r.start], shared = slotRows(b.group, r.day, r.start).some(function (x) { return !x.ghost && x.disc !== r.disc && (!r.sub || !x.sub || x.sub === r.sub); });
+      var id = r.day + '|' + r.start + '|' + (r.sub || 0);
+      return '<li><span>' + esc(dayLabel(r.day)) + ', ' + (s ? s.n + ' пара' : esc(r.start)) + (r.sub ? ', ' + r.sub + ' подгруппа' : '') + (r.teacher ? ', ' + esc(r.teacher) : '') + (r.edit ? ' <span class="hint">(поставлена правкой)</span>' : '') + '</span>' +
+        (shared ? '<span class="hint">в это время у группы ещё пара — отмените в расписании</span>' : '<button type="button" class="btn btn-small btn-danger" data-bal-cut="' + esc(key + '|' + id) + '">Отменить</button>') + '</li>';
+    }).join('') + '</ul><p class="hint">Отмена — правка администратора, её можно убрать в разделе «Изменения».</p>';
+  }
+  function balTableHTML(b) {
+    var rows = b.lines.map(function (l, i) {
+      var key = b.group + '|' + i, quiet = l.status === 'practice' || l.status === 'ok';
+      var bare = function (x) { return String(x).toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, ''); };
+      var other = l.names.filter(function (n) { return bare(n) !== bare(l.name); });
+      var tr = '<tr class="' + (quiet ? 'is-quiet' : '') + '"><td class="title" data-label="Предмет">' + discHTML(l.name) + (other.length ? '<span class="aka">в расписании: ' + esc(other.join('; ')) + '</span>' : '') + '</td>' +
+        '<td class="col-minor" data-label="Преподаватель">' + esc(l.teachers.join(', ') || l.planTeacher || '—') + '</td>' +
+        '<td class="n" data-label="План">' + (l.plan ? hoursWord(l.plan) : '—') + '</td>' +
+        '<td class="n" data-label="Проведено">' + hoursWord(l.done) + '</td>' +
+        '<td class="n" data-label="Ещё стоит">' + hoursWord(l.future) + '</td>' +
+        '<td class="n strong" data-label="План − расписание">' + (l.plan || l.status === 'extra' ? signed(l.gap) + ' ч' : '—') + '</td>' +
+        '<td class="bal-do" data-label="Что сделать">' + balActionHTML(b, l, i) + '</td></tr>';
+      if (bal.open === key + ':add' && l.status === 'add') tr += '<tr class="bal-more"><td colspan="7">' + balMoreHTML(b, l, i, 'add') + '</td></tr>';
+      if (bal.open === key + ':cut' && l.status === 'cut') tr += '<tr class="bal-more"><td colspan="7">' + balMoreHTML(b, l, i, 'cut') + '</td></tr>';
+      return tr;
+    });
+    return '<section class="tablebox"><div class="table-wrap"><table class="smart hours bal"><thead><tr><th scope="col">Предмет</th><th scope="col" class="col-minor">Преподаватель</th>' +
+      '<th scope="col" class="n">План</th><th scope="col" class="n">Проведено</th><th scope="col" class="n">Ещё стоит</th><th scope="col" class="n" title="Больше нуля — пары нужно добавить, меньше нуля — снять">План − расписание</th><th scope="col">Что сделать</th></tr></thead><tbody>' +
+      rows.join('') + '</tbody></table></div></section>';
+  }
+  function balDetailHTML(g) {
+    var b = balanceFor(g);
+    if (!b) return '<section class="empty"><p>' + (net.failed[g] ? 'Не удалось загрузить расписание группы ' + esc(g) + '.' : 'Загружаю расписание группы ' + esc(g) + '…') + '</p>' + (net.failed[g] ? '<button type="button" class="btn" data-bal-retry>Повторить</button>' : '') + '</section>';
+    var t = b.total, facts = [];
+    if (!b.plan) facts.push('Для группы ' + g + ' на листе «' + CFG.planSheet + '» нет учебного плана, сравнивать не с чем.');
+    else if (b.plan.group !== g) facts.push('Учебный план взят из блока «' + b.plan.group + '».');
+    if (b.theoryEnd) facts.push('Теория по графику учебного процесса — до ' + fmtDayMonth(b.theoryEnd) + '.');
+    if (b.covered && b.until && b.covered < b.until) facts.push('Расписание в таблице заполнено только до ' + fmtDayMonth(b.covered) + ': всё, что не стоит в таблице до ' + fmtDayMonth(b.until) + ', посчитано как недостающее.');
+    if (b.passed) facts.push('Срок вычитки (' + fmtDayMonth(b.until) + ') уже прошёл: «Добавить» показывает, сколько пар так и не проведено. Чтобы вычитать их в дни практики, нажмите «Перед сессией» или выберите свою дату.');
+    if (b.after) facts.push(pairsStand(b.after) + ' в таблице после ' + fmtDayMonth(b.until) + (b.until === b.sessionUntil ? ' — в сессию или каникулы по графику' : ' — в дни практики, сессии или каникул по графику') + ', они не засчитаны.' +
+      (b.sessionUntil && b.until < b.sessionUntil ? ' Если эти пары правда пройдут, нажмите «Перед сессией».' : ''));
+    if (b.onHoliday) facts.push(pairsStand(b.onHoliday) + ' в праздничные дни (' + b.holidayDays.map(fmtDayMonth).join(', ') + '), их не будет — они не засчитаны. Перенесите их на другие дни.');
+    if (b.onPractice) facts.push(pairsStand(b.onPractice) + ' в дни практики по графику учебного процесса (первая — ' + fmtDayMonth(b.practiceFrom) + '). Они засчитаны. Если этих пар не будет, снимите их или поправьте график на вкладке «График».');
+    facts.push(b.edits ? 'Учтены правки администраторов по этой группе: ' + b.edits + '. После каждой новой правки таблица пересчитывается сама.' : 'Правок администраторов по этой группе нет. Как только пару добавят, отменят или перенесут на сайте, числа пересчитаются сами.');
+    if (b.guessed) facts.push('На листе группы ' + count(b.guessed, 'неделя', 'недели', 'недель') + ' без строки дат: даты взяты по номеру недели.');
+    if (b.template) facts.push('У группы только недельный шаблон без дат: он посчитан на каждую неделю семестра.');
+    if (b.source === 'cache') facts.push('Google-таблица не ответила, посчитано по сохранённой копии от ' + fmtStamp(b.at) + '.');
+    var head = '<section class="hsum" aria-label="Итог вычитки">' +
+      '<p class="hsum-line"><span translate="no">' + esc(g) + '</span>, ' + esc(halfName(b.half)) + ': ' +
+      (!b.plan ? 'нет учебного плана.' : !t.add && !t.cut ? '<strong>часы сходятся</strong> с учебным планом.' :
+        [t.add ? 'добавить <strong>' + esc(pairsAcc(t.add)) + '</strong> (не хватает ' + hoursWord(t.addH) + ' по ' + count(t.nAdd, 'предмету', 'предметам', 'предметам') + ')' : '',
+          t.cut ? 'снять <strong>' + esc(pairsAcc(t.cut)) + '</strong> (лишние ' + hoursWord(t.cutH) + ' по ' + count(t.nCut, 'предмету', 'предметам', 'предметам') + ')' : ''].filter(Boolean).join(', ') + '.') + '</p>' +
+      '<div class="bal-until"><label for="bal-until">Вычитать до</label><input type="date" id="bal-until" value="' + esc(b.until) + '"' + (b.half === 1 ? ' max="' + esc(isoOfUtc(utcOfIso(half2Of(g)) - DAY)) + '"' : '') + '>' +
+      (b.theoryEnd && b.until !== b.theoryEnd ? '<button type="button" class="btn btn-small" data-bal-until-reset>До конца теории (' + esc(fmtDayMonth(b.theoryEnd)) + ')</button>' : '') +
+      (b.sessionUntil && b.until !== b.sessionUntil ? '<button type="button" class="btn btn-small" data-bal-until-set="' + esc(b.sessionUntil) + '">Перед сессией (' + esc(fmtDayMonth(b.sessionUntil)) + ')</button>' : '') +
+      '<span class="hint">' + (b.left ? 'осталось ' + count(b.left, 'учебный день', 'учебных дня', 'учебных дней') : 'учебные дни до срока закончились') + '</span></div>' +
+      '<ul class="bal-facts">' + facts.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>' +
+      '<div class="bal-tools"><button type="button" class="btn btn-small" data-bal-csv="' + esc(g) + '">Скачать для Excel</button>' +
+      (isAdmin() ? '' : '<span class="hint">Ставить и снимать пары отсюда может администратор после входа.</span>') + '</div></section>';
+    return head + (b.lines.length ? balTableHTML(b) : '');
+  }
+  function balOverviewHTML() {
+    var rows = DB.groups.map(function (g) { return { g: g, b: balanceFor(g) }; });
+    rows.sort(function (x, y) {
+      var a = x.b ? x.b.total.add : -1, c = y.b ? y.b.total.add : -1;
+      return (isUrgent(y.g) ? 1 : 0) - (isUrgent(x.g) ? 1 : 0) || c - a || cmpRu(x.g, y.g);
+    });
+    var body = rows.map(function (x) {
+      var b = x.b;
+      if (!b) return '<tr><th scope="row" translate="no">' + esc(x.g) + '</th><td colspan="5" class="hint">' + (net.failed[x.g] ? 'не загрузилась' : 'загружаю…') + '</td></tr>';
+      return '<tr><th scope="row"><span translate="no">' + esc(x.g) + '</span>' + (isUrgent(x.g) ? ' <span class="bal-tag">горит</span>' : '') + '</th>' +
+        '<td class="n" data-label="Добавить">' + (b.total.add ? '<span class="bal-act is-bad">+' + b.total.add + '</span>' : '0') + '</td>' +
+        '<td class="n" data-label="Снять">' + (b.total.cut ? '<span class="bal-act is-warn">−' + b.total.cut + '</span>' : '0') + '</td>' +
+        '<td data-label="Вычитать до">' + (b.until ? esc(fmtDayMonth(b.until)) : '—') + '</td>' +
+        '<td data-label="Таблица до">' + (b.covered ? esc(fmtDayMonth(b.covered)) : '—') + (b.covered && b.until && b.covered < b.until ? ' <span class="bal-act is-warn">не до конца</span>' : '') + '</td>' +
+        '<td><button type="button" class="btn btn-small" data-bal-group="' + esc(x.g) + '">Открыть</button></td></tr>';
+    });
+    var loading = net.bulk ? '<p class="hint pad">Загружаю расписание всех групп: ' + net.bulk.done + ' из ' + net.bulk.total + '…</p>' : '';
+    return '<section class="tablebox"><div class="table-head"><h2>Все группы</h2><span class="count">пары, которые нужно добавить или снять до сессии</span>' +
+      '<button type="button" class="btn btn-small" data-bal-csv="*">Скачать для Excel</button></div>' + loading +
+      '<div class="table-wrap"><table class="smart hours bal-all"><thead><tr><th scope="col">Группа</th><th scope="col" class="n">Добавить пар</th><th scope="col" class="n">Снять пар</th>' +
+      '<th scope="col">Вычитать до</th><th scope="col">Таблица заполнена до</th><th scope="col"><span class="sr-only">Действие</span></th></tr></thead><tbody>' + body.join('') + '</tbody></table></div></section>';
+  }
+  function renderBalance() {
+    var box = $('balance-body');
+    if (!DB.groups.length) { box.innerHTML = '<section class="empty"><p>' + (net.listFailed ? 'Не удалось загрузить список групп.' : 'Загружаю список групп…') + '</p></section>'; return; }
+    if (PLAN.status === 'loading') { box.innerHTML = '<section class="empty"><p>Загружаю учебный план…</p></section>'; return; }
+    var urgent = urgentGroups(), cur = state.balAll ? '' : balanceGroup();
+    var opts = '<option value="">Выберите группу</option>' + DB.groups.map(function (g) { return '<option value="' + esc(g) + '"' + (g === cur ? ' selected' : '') + '>' + esc(g) + (isUrgent(g) ? ' — горит' : '') + '</option>'; }).join('');
+    var html = '<section class="filters bal-filters" aria-label="Группа">' +
+      '<div class="field"><label for="bal-group">Группа</label><select id="bal-group">' + opts + '</select></div>' +
+      '<div class="field"><span class="label">Сводка</span><button type="button" class="btn' + (state.balAll ? ' btn-primary' : '') + '" data-bal-all aria-pressed="' + (state.balAll ? 'true' : 'false') + '">Все группы</button></div></section>';
+    if (urgent.length) {
+      html += '<section class="bal-urgent" aria-labelledby="bal-urgent-h"><h2 id="bal-urgent-h">Горящие группы: срочная вычитка часов</h2><div class="bal-cards">' +
+        urgent.map(function (g) { return balCardHTML(g, cur); }).join('') + '</div>' +
+        '<p class="hint">Число на карточке — сколько пар добавить (+) или снять (−), чтобы к сроку вычитать часы ровно по учебному плану. Срок по умолчанию — последний день теории по графику учебного процесса, его можно поменять в группе. Список горящих групп задаётся в config.js, поле urgentGroups.</p></section>';
+    }
+    html += state.balAll ? balOverviewHTML() : cur ? balDetailHTML(cur) : '<section class="empty"><p>Выберите группу.</p></section>';
+    box.innerHTML = html;
+  }
+  function balLine(key) {
+    var p = key.split('|'), b = balanceFor(p[0]);
+    return b ? { b: b, l: b.lines[+p[1]], i: +p[1] } : null;
+  }
+  function balPut(arg) {
+    var p = arg.split('|'), x = balLine(p[0] + '|' + p[1]);
+    if (!x || !x.l) return;
+    var l = x.l, g = x.b.group, day = p[2], start = p[3];
+    var disc = l.names[0] || l.name, teacher = lineTeacher(l), rooms = {};
+    DB.sheets[g].rows.forEach(function (r) { if (!r.ghost && l.names.indexOf(r.disc) >= 0 && r.room) rooms[r.room] = (rooms[r.room] || 0) + 1; });
+    var room = Object.keys(rooms).sort(function (a, c) { return rooms[c] - rooms[a]; })[0] || '';
+    var e = { id: '', kind: 'add', group: g, date: day, start: start, end: slotEndOf(start), sub: 0, disc: disc, teacher: teacher, room: room, note: 'вычитка часов', was: '' };
+    Api.save([e], {}).then(function (saved) {
+      mergeEdits(saved);
+      HIST.status = 'idle';
+      recompute();
+      var nb = balanceFor(g), nl = nb && nb.lines.filter(function (y) { return y.name === l.name; })[0];
+      if (!nl || nl.status !== 'add') bal.open = '';
+      render();
+      toast('Пара поставлена: ' + dayLabel(day) + ', ' + slotLabel(start) + '. ' + (nl && nl.status === 'add' ? 'Осталось добавить ' + pairsAcc(nl.pairs) + '.' : 'По этому предмету часы теперь сходятся.'));
+    }, function (err) { toast(err.message, true); });
+  }
+  function balCut(arg) {
+    var p = arg.split('|'), x = balLine(p[0] + '|' + p[1]);
+    if (!x || !x.l) return;
+    var g = x.b.group, day = p[2], start = p[3], sub = +p[4] || 0;
+    var row = slotRows(g, day, start).filter(function (r) { return !r.ghost && x.l.names.indexOf(r.disc) >= 0 && (+r.sub || 0) === sub; })[0];
+    if (!row) return;
+    if (!confirm('Отменить пару «' + splitCode(row.disc).name + '» ' + dayLabel(day) + ', ' + slotLabel(start) + '?')) return;
+    var after = function () {
+      var nb = balanceFor(g), nl = nb && nb.lines.filter(function (y) { return y.name === x.l.name; })[0];
+      if (!nl || nl.status !== 'cut') bal.open = '';
+    };
+    if (row.edit && row.edit.kind === 'add') { removeEdit(row.edit.id, function () { after(); render(); }); return; }
+    var was = JSON.stringify(slotRows(g, day, start).filter(function (r) { return !r.ghost && !r.edit && (!sub || !r.sub || r.sub === sub); }).map(function (r) { return { disc: r.disc, teacher: r.teacher, room: r.room, sub: r.sub }; }));
+    var e = { id: row.edit ? row.edit.id : '', kind: 'cancel', group: g, date: day, start: start, end: row.end, sub: sub, note: 'вычитка: лишние часы', was: row.edit ? row.edit.was : was };
+    Api.save([e], {}).then(function (saved) {
+      mergeEdits(saved);
+      HIST.status = 'idle';
+      recompute();
+      after();
+      render();
+      toast('Пара отменена. Убрать отмену можно в разделе «Изменения».');
+    }, function (err) { toast(err.message, true); });
+  }
+  function csvCell(v) { var s = String(v == null ? '' : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  function balCsv(which) {
+    var rows = [];
+    if (which === '*') {
+      rows.push(['Группа', 'Горит', 'Добавить пар', 'Снять пар', 'Не хватает часов', 'Лишних часов', 'Вычитать до', 'Таблица заполнена до']);
+      DB.groups.forEach(function (g) {
+        var b = balanceFor(g);
+        if (b) rows.push([g, isUrgent(g) ? 'да' : '', b.total.add, b.total.cut, b.total.addH, b.total.cutH, b.until ? fmtShort(b.until) : '', b.covered ? fmtShort(b.covered) : '']);
+      });
+    } else {
+      var b = balanceFor(which);
+      if (!b) return;
+      rows.push(['Группа', 'Предмет', 'Преподаватель', 'План, ч', 'Проведено, ч', 'Ещё стоит, ч', 'План − расписание, ч', 'Пар добавить', 'Пар снять', 'Что сделать']);
+      b.lines.forEach(function (l) {
+        var what = { add: 'добавить пары', cut: 'снять пары', ok: 'сходится', practice: 'практика по графику', noplan: 'в семестре нет часов по плану', extra: 'нет в учебном плане' }[l.status];
+        rows.push([b.group, l.name, l.teachers.join(', ') || l.planTeacher, l.plan, l.done, l.future, l.plan || l.status === 'extra' ? l.gap : '', l.status === 'add' ? l.pairs : '', l.status === 'cut' ? l.pairs : '', what]);
+      });
+    }
+    var text = '﻿' + rows.map(function (r) { return r.map(csvCell).join(';'); }).join('\r\n');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    a.download = 'vychitka-' + (which === '*' ? 'vse-gruppy' : slug(which)) + '-' + todayISO() + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
 
   // ---------- PDF schedule view ----------
   var gcourse = 'all';
@@ -2925,6 +3345,7 @@
     if (who) renderWho();
     if (v === 'lessons') renderLessons();
     else if (v === 'hours') renderHours();
+    else if (v === 'balance') renderBalance();
     else if (v === 'grafik') renderGrafik();
     else if (v === 'history') renderHistory();
     else renderExams();
@@ -3234,6 +3655,39 @@
   $('ed-cancel').addEventListener('click', function () { $('edit-dialog').close(); });
   $('ed-remove').addEventListener('click', function () {
     if (ed && ed.edit && confirm('Убрать правку? Пара снова пойдёт по основному расписанию.')) removeEdit(ed.edit.id, function () { $('edit-dialog').close(); });
+  });
+  $('balance-body').addEventListener('click', function (e) {
+    var t;
+    if ((t = e.target.closest('[data-bal-group]'))) {
+      state.group = t.getAttribute('data-bal-group'); state.balAll = false; bal.open = ''; bal.wantAll = false;
+      render(); ensureView();
+      var d = $('balance-body').querySelector('.hsum');
+      if (d && e.target.closest('.bal-all')) d.scrollIntoView({ block: 'start', behavior: REDUCED.matches ? 'auto' : 'smooth' });
+      return;
+    }
+    if (e.target.closest('[data-bal-all]')) { state.balAll = !state.balAll; bal.open = ''; render(); ensureView(); return; }
+    if ((t = e.target.closest('[data-bal-open]'))) {
+      var k = t.getAttribute('data-bal-open');
+      bal.open = bal.open === k ? '' : k;
+      // free time has to be checked against the teacher's pairs in every group
+      if (bal.open && /:add$/.test(bal.open)) { bal.wantAll = true; ensureView(); }
+      render();
+      return;
+    }
+    if ((t = e.target.closest('[data-bal-put]'))) { t.disabled = true; balPut(t.getAttribute('data-bal-put')); return; }
+    if ((t = e.target.closest('[data-bal-cut]'))) { balCut(t.getAttribute('data-bal-cut')); return; }
+    if ((t = e.target.closest('[data-bal-csv]'))) { balCsv(t.getAttribute('data-bal-csv')); return; }
+    if (e.target.closest('[data-bal-until-reset]')) { delete bal.until[balanceGroup()]; render(); return; }
+    if ((t = e.target.closest('[data-bal-until-set]'))) { bal.until[balanceGroup()] = t.getAttribute('data-bal-until-set'); render(); return; }
+    if (e.target.closest('[data-bal-retry]')) retry();
+  });
+  $('balance-body').addEventListener('change', function (e) {
+    if (e.target.id === 'bal-group') { if (e.target.value) { state.group = e.target.value; state.mode = 'group'; state.balAll = false; bal.open = ''; render(); ensureView(); } return; }
+    if (e.target.id === 'bal-until') {
+      var v = e.target.value;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) bal.until[balanceGroup()] = v; else delete bal.until[balanceGroup()];
+      render();
+    }
   });
   document.querySelector('.views').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-view]');

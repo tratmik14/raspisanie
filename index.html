@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=3.6">
+  <link rel="stylesheet" href="styles.css?v=3.7">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -58,6 +58,7 @@
     <nav class="views" role="tablist" aria-label="Разделы">
       <button type="button" role="tab" id="tab-lessons" data-view="lessons" aria-controls="view-lessons">Занятия</button>
       <button type="button" role="tab" id="tab-hours" data-view="hours" aria-controls="view-hours">Часы</button>
+      <button type="button" role="tab" id="tab-balance" data-view="balance" aria-controls="view-balance">Вычитка</button>
       <button type="button" role="tab" id="tab-grafik" data-view="grafik" aria-controls="view-grafik">График</button>
       <button type="button" role="tab" id="tab-exams" data-view="exams" aria-controls="view-exams">Экзамены</button>
       <button type="button" role="tab" id="tab-history" data-view="history" aria-controls="view-history">Изменения<span class="tab-count" id="tab-history-count"></span></button>
@@ -144,6 +145,10 @@
         <p id="h-empty-text"></p>
         <button type="button" class="btn" id="h-empty-action" hidden></button>
       </section>
+    </main>
+
+    <main class="stack" id="view-balance" role="tabpanel" aria-labelledby="tab-balance" hidden>
+      <div class="stack" id="balance-body"></div>
     </main>
 
     <main class="stack" id="view-grafik" role="tabpanel" aria-labelledby="tab-grafik" hidden>
@@ -516,10 +521,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=3.6"></script>
-  <script src="hours.js?v=3.6"></script>
-  <script src="gas-sim.js?v=3.6"></script>
-  <script src="api.js?v=3.6"></script>
-  <script src="app.js?v=3.6"></script>
+  <script src="config.js?v=3.7"></script>
+  <script src="hours.js?v=3.7"></script>
+  <script src="gas-sim.js?v=3.7"></script>
+  <script src="api.js?v=3.7"></script>
+  <script src="app.js?v=3.7"></script>
 </body>
 </html>

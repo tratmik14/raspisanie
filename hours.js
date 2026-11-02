@@ -112,10 +112,15 @@
       if (/^\s*ПМ[а-яё]?[\s.]*\d/.test(name)) return;
       var s1 = map.s1 != null ? termHours(row[map.s1]) : 0;
       var s2 = map.s2 != null ? termHours(row[map.s2]) : 0;
+      // the year total typed into the 1st-term column (СПм-25: «144» there and «9/144 4с» in the 2nd):
+      // the hours belong to the term that has the «a week / hours» record
+      if (s1 && s1 === s2 && !/\//.test(row[map.s1]) && /\//.test(row[map.s2])) s1 = 0;
       var p1 = map.p1 != null ? termHours(row[map.p1]) : 0;
       var p2 = map.p2 != null ? termHours(row[map.p2]) : 0;
       var y = map.year != null ? yearHours(row[map.year]) : { hours: 0, cons: 0 };
       if (!s1 && !s2 && !p1 && !p2 && !y.hours) return; // a module heading such as «ПМ.05 …»
+      // the same subject pasted twice into one block (ТМ-24: ПМ.05–ПП 06 repeat) is one subject
+      if (cur.subjects.some(function (x) { return low(x.name) === low(name); })) return;
       var formRaw = map.form != null ? row[map.form] : '';
       cur.subjects.push({
         name: name,
@@ -243,22 +248,36 @@
   // ---------- counting ----------
   // rows: the lessons of one group after the admin edits; cancelled lessons are already out.
   // Every pair is the same number of academic hours; one pair given to both subgroups counts once.
+  // Subgroups: a pair of the whole group counts once; pairs of the 1st and of the 2nd subgroup are
+  // counted apart, and the subject gets the hours of the subgroup that has more. So two subgroups
+  // at the same time are one pair, and two subgroups at different times are not two pairs either.
   function countHours(rows, opt) {
     var per = opt.hoursPerPair || 2, nowIso = opt.today, nowMin = opt.nowMin;
     var res = {};
     var seen = {};
+    function blank() { return { done: [0, 0, 0], all: [0, 0, 0], last: '', next: '' }; }
     rows.forEach(function (r) {
-      var key = r.day + '|' + r.start + '|' + r.disc;
-      if (seen[key]) return;
+      var sub = +r.sub === 1 || +r.sub === 2 ? +r.sub : 0;
+      var key = r.day + '|' + r.start + '|' + r.disc + '|' + sub;
+      if (seen[key] || (sub && seen[r.day + '|' + r.start + '|' + r.disc + '|0'])) return;
       seen[key] = true;
       var half = r.day < opt.half2 ? 1 : 2;
-      var e = res[r.disc] || (res[r.disc] = { disc: r.disc, h: [null, { done: 0, all: 0, last: '', next: '' }, { done: 0, all: 0, last: '', next: '' }], teachers: {} });
+      var e = res[r.disc] || (res[r.disc] = { disc: r.disc, h: [null, blank(), blank()], teachers: {} });
       var x = e.h[half];
-      x.all += per;
+      x.all[sub] += per;
       var past = r.day < nowIso || (r.day === nowIso && toMin(r.end) <= nowMin);
-      if (past) { x.done += per; if (r.day > x.last) x.last = r.day; }
+      if (past) { x.done[sub] += per; if (r.day > x.last) x.last = r.day; }
       else if (!x.next || r.day < x.next) x.next = r.day;
       if (r.teacher) e.teachers[r.teacher] = true;
+    });
+    Object.keys(res).forEach(function (d) {
+      [1, 2].forEach(function (h) {
+        var x = res[d].h[h];
+        // the subgroup with more pairs in all decides, its held pairs go with it
+        var k = x.all[1] >= x.all[2] ? 1 : 2;
+        x.all = x.all[0] + x.all[k];
+        x.done = x.done[0] + x.done[k];
+      });
     });
     return res;
   }
@@ -294,10 +313,62 @@
     return { lines: lines.filter(function (l) { return l.plan > 0 || l.all > 0; }), extra: extra };
   }
 
+  // ---------- вычитка: the plan of the half against everything scheduled in it ----------
+  // УП, ПП, ПДП and «… практика» go by the PDF schedule in whole weeks, not by pairs
+  function isPractice(name) {
+    return /^(УП|ПП|ПДП)(-|$)/.test(codeOf(name).code) || /практик/i.test(name);
+  }
+  // sum: summarize() of one group and half. Every line gets a status:
+  // 'add' — pairs are missing, 'cut' — there are too many, 'ok', 'practice' (no pairs, goes by weeks),
+  // 'noplan' — the plan gives the subject no hours in this half, 'extra' — in the timetable, not in the plan. «all» is held + still to come after the admin edits.
+  function balance(sum, per) {
+    per = per || 2;
+    var lines = [], tot = { add: 0, cut: 0, addH: 0, cutH: 0, plan: 0, done: 0, all: 0, nAdd: 0, nCut: 0 };
+    sum.lines.forEach(function (l) {
+      var s = l.subject, gap = l.plan - l.all, st, pairs = 0;
+      if (!l.plan) st = 'noplan';
+      else if (isPractice(s.name) && !l.all) st = 'practice';
+      else if (gap > 0) { st = 'add'; pairs = Math.ceil(gap / per); }
+      else if (gap <= -per) { st = 'cut'; pairs = Math.floor(-gap / per); }
+      else st = 'ok';
+      lines.push({ name: s.name, planTeacher: s.teacher || '', names: l.names, teachers: Object.keys(l.teachers), plan: l.plan, done: l.done,
+        future: l.all - l.done, all: l.all, gap: gap, pairs: pairs, status: st, next: l.next, last: l.last });
+    });
+    sum.extra.forEach(function (l) {
+      lines.push({ name: l.names.join('; '), planTeacher: '', names: l.names, teachers: Object.keys(l.teachers), plan: 0, done: l.done,
+        future: l.all - l.done, all: l.all, gap: -l.all, pairs: 0, status: 'extra', next: l.next, last: l.last });
+    });
+    lines.forEach(function (x) {
+      if (x.status === 'practice' || x.status === 'extra' || x.status === 'noplan') return;
+      tot.plan += x.plan; tot.done += x.done; tot.all += x.all;
+      if (x.status === 'add') { tot.add += x.pairs; tot.addH += x.gap; tot.nAdd++; }
+      if (x.status === 'cut') { tot.cut += x.pairs; tot.cutH -= x.gap; tot.nCut++; }
+    });
+    var order = { add: 0, cut: 1, extra: 2, noplan: 3, ok: 4, practice: 5 };
+    lines.sort(function (a, b) { return order[a.status] - order[b.status] || b.pairs - a.pairs; });
+    return { lines: lines, total: tot };
+  }
+  // The last day to read the hours of a half: the day before the session that closes it (the last run of
+  // attestation days before the holidays), else the last day of the half that is not a holiday. A lone
+  // attestation day in the middle of practice (МСР-24: «APPPP») does not end the half.
+  // days: [{ iso, c }] Mon–Fri in order, c is the letter of the PDF schedule.
+  function balanceDeadline(days) {
+    var lastT = -1, end = -1, i;
+    for (i = 0; i < days.length; i++) {
+      if (days[i].c === 'T') lastT = i;
+      if (days[i].c && days[i].c !== 'K') end = i;
+    }
+    var stop = end + 1;
+    for (i = end; i >= 0 && (days[i].c === 'A' || days[i].c === 'G' || days[i].c === 'K'); i--) stop = i;
+    var until = '';
+    for (i = stop - 1; i >= 0; i--) if (days[i].c !== 'K' && days[i].c !== 'A' && days[i].c !== 'G') { until = days[i].iso; break; }
+    return { theoryEnd: lastT >= 0 ? days[lastT].iso : '', until: until };
+  }
+
   var api = {
     parsePlan: parsePlan, termHours: termHours, yearHours: yearHours, parseForm: parseForm, FORM_NAMES: FORM_NAMES,
     codeOf: codeOf, matchScore: matchScore, linkSubjects: linkSubjects, countHours: countHours, summarize: summarize,
-    secondHalfStart: secondHalfStart
+    secondHalfStart: secondHalfStart, isPractice: isPractice, balance: balance, balanceDeadline: balanceDeadline
   };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.RaspHours = api;
