@@ -228,14 +228,6 @@ export default function SchedulePage() {
 
 Группу можно передать сразу: `?embed=1&group=ИС2-25`. Вход для администратора во встроенном виде скрыт, править расписание удобнее на самом сайте.
 
-## Где разместить
-
-Сайт работает на GitHub Pages: https://tratmik14.github.io/raspisanie/. Чтобы обновить его через браузер:
-
-1. Откройте репозиторий `tratmik14/raspisanie` → **Add file → Upload files**.
-2. Перетащите файлы `index.html`, `styles.css`, `config.js`, `app.js`, `hours.js`, `api.js`, `gas-sim.js`, `README.md` и папки `data`, `tools`, `apps-script`. Совпадающие файлы заменятся.
-3. Нажмите **Commit changes**. Сайт обновится через 1–2 минуты.
-
 ## Таблица расписания
 
 Что сайт прощает листам групп, чтобы ничего не потерялось:
