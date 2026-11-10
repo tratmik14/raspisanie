@@ -1190,3 +1190,25 @@ input[type="file"] { padding: 8px 0; }
   .bal .bal-do { min-width: 0; }
   .bal tr.bal-more td { display: block; }
 }
+
+/* Таблица экзаменов: загрузка и сверка */
+.xi-drop { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 22px 16px; border: 2px dashed var(--line-strong); border-radius: var(--radius); background: var(--surface-2); cursor: pointer; transition: border-color var(--ease), background var(--ease); }
+.xi-drop:hover, .xi-drop.is-over { border-color: var(--primary); background: var(--primary-soft); }
+.xi-drop:focus-within { outline: 3px solid var(--primary); outline-offset: 2px; }
+.xi-drop-title { font-weight: 800; color: var(--fg); }
+.xi-drop input { max-width: 100%; margin-top: 6px; }
+.xi-table .aka { display: block; font-size: .8125rem; color: var(--fg-3); margin-top: 2px; }
+.xi-table .badge { white-space: nowrap; }
+.xi-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: .8125rem; }
+.xi-notes li.xi-warn { color: var(--warn); font-weight: 600; }
+.xi-notes li.xi-warn::before { content: "⚠ "; }
+.xi-notes li.xi-info { color: var(--fg-3); }
+.xi-notes li.xi-info::before { content: "ℹ "; }
+.xi-notes label { display: inline-flex; gap: 6px; align-items: flex-start; cursor: pointer; }
+.xi-notes input { width: 18px; height: 18px; margin: 0; flex: none; }
+.xi-ok { color: var(--ok); font-size: .8125rem; font-weight: 600; }
+.xi-bad { margin-top: 10px; font-size: .875rem; }
+.xi-bad summary { cursor: pointer; font-weight: 700; color: var(--fg-2); }
+.xi-bad ul { margin: 6px 0 0; padding-left: 1.2em; }
+#xi-dialog { width: min(1040px, calc(100vw - 24px)); }
+.xi-table td:last-child { min-width: 280px; }

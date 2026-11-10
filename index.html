@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=3.7">
+  <link rel="stylesheet" href="styles.css?v=3.8">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -259,7 +259,7 @@
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="7" cy="18" r="2" fill="currentColor"/></svg>
               Колонки
             </button>
-            <button type="button" class="btn btn-small" id="e-import" hidden>Загрузить из документа</button>
+            <button type="button" class="btn btn-small" id="e-import" hidden>Загрузить таблицу экзаменов</button>
             <button type="button" class="btn btn-small" id="e-template">Шаблон</button>
             <button type="button" class="btn btn-small" id="e-export">Экспорт в Excel</button>
           </div>
@@ -491,9 +491,11 @@
 
   <dialog class="dlg dlg-wide" id="xi-dialog" aria-labelledby="xi-title">
     <form method="dialog" novalidate>
-      <h2 id="xi-title">Экзамены из документа</h2>
-      <p class="hint">Подойдёт файл Excel (.xlsx, .xls, .csv), Word (.docx) или Google-документ с таблицей: группа, дисциплина, дата и время, аудитория, преподаватель, тип аттестации. Если таблица одной группы, группу можно написать над таблицей.</p>
-      <div class="field"><label for="xi-file">Файл</label><input type="file" id="xi-file" name="exam_file" accept=".xlsx,.xls,.csv,.docx,.html,.htm"></div>
+      <h2 id="xi-title">Таблица экзаменов</h2>
+      <p class="hint">Перетащите сюда файл или выберите его: Excel (.xlsx, .xls, .csv), Word (.docx) или Google-документ по ссылке. Подойдут и графики колледжа «Графики экзаменов…» и «График зачётной недели…»: группа берётся из строки «группы № …» над таблицей, экзамен или зачёт — из заголовка. Старый формат Word (.doc) сначала сохраните как .docx.</p>
+      <p class="hint">Сайт сверит каждую строку со списком групп, учебным планом, графиком учебного процесса, преподавателями и расписанием пар, покажет, что изменится, и только потом сохранит. Меняются экзамены только тех групп, что есть в таблице.</p>
+      <label class="xi-drop" id="xi-drop" for="xi-file"><span class="xi-drop-title">Перетащите файл сюда</span><span class="hint">или нажмите, чтобы выбрать</span>
+        <input type="file" id="xi-file" name="exam_file" accept=".xlsx,.xls,.csv,.docx,.doc,.html,.htm"></label>
       <div class="xi-url">
         <div class="field"><label for="xi-url">Или ссылка на Google-документ</label><input type="url" id="xi-url" name="exam_doc_url" autocomplete="off" placeholder="https://docs.google.com/document/d/…"></div>
         <button type="button" class="btn" id="xi-read">Прочитать документ</button>
@@ -502,7 +504,7 @@
       <div id="xi-preview"></div>
       <div class="dlg-actions">
         <button type="button" class="btn btn-quiet" id="xi-cancel">Закрыть</button>
-        <button type="button" class="btn btn-primary" id="xi-save" disabled>Заменить список экзаменов</button>
+        <button type="button" class="btn btn-primary" id="xi-save" disabled>Применить</button>
       </div>
     </form>
   </dialog>
@@ -521,10 +523,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=3.7"></script>
-  <script src="hours.js?v=3.7"></script>
-  <script src="gas-sim.js?v=3.7"></script>
-  <script src="api.js?v=3.7"></script>
-  <script src="app.js?v=3.7"></script>
+  <script src="config.js?v=3.8"></script>
+  <script src="hours.js?v=3.8"></script>
+  <script src="gas-sim.js?v=3.8"></script>
+  <script src="api.js?v=3.8"></script>
+  <script src="app.js?v=3.8"></script>
 </body>
 </html>

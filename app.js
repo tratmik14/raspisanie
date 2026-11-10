@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.7';
+  var SITE_VERSION = '3.8';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -390,6 +390,7 @@
       if (/групп/.test(h)) { if (map.group == null) map.group = i; return; }
       if (/дисципл|модул|предмет|наименован/.test(h)) { if (map.discipline == null) map.discipline = i; return; }
       if (/ауд|кабин|помещ/.test(h)) { if (map.room == null) map.room = i; return; }
+      if (/^№\s*(п\s*\/\s*п)?\.?$/.test(h)) { if (map.num == null) map.num = i; return; }
       if (/препод|фио|экзаменатор|педагог/.test(h)) { if (map.teacher == null) map.teacher = i; return; }
       if (/тип|вид|форм/.test(h)) { if (map.type == null) map.type = i; return; }
       if (/дата|срок/.test(h)) { if (map.date == null) map.date = i; return; }
@@ -397,25 +398,52 @@
     });
     return map;
   }
+  // «график экзаменационной сессии» → Экзамен, «расписание зачетной недели» → Зачёт
+  function examKindOf(text) {
+    var low = cellText(text).toLowerCase().replace(/ё/g, 'е');
+    if (/зачетн\S*\s+недел/.test(low)) return 'Зачёт';
+    if (/экзаменацион/.test(low)) return 'Экзамен';
+    return '';
+  }
+  // a word broken at a dash by a narrow cell («дизайн-» / «макетов») is joined back
+  function joinDisc(s) { return cellText(s).replace(/([А-ЯЁа-яёA-Za-z])- (?=[а-яё])/g, '$1-'); }
   // Returns null when the sheet does not look like an exam list (Google answers with the
   // first sheet of the workbook when the requested one does not exist).
+  // The college's own Word schedules are read too: one table per group under «группы № ПСОп-23»,
+  // no «Тип» column (the kind comes from the title of the document, «диф» in a name makes it a
+  // diff. credit), and a long name that runs over into a row without a date and a number.
+  // defaults: { group, kind, map } — what the text above the table said, and the columns of the
+  // table before it (a table that breaks over a page has no header the second time).
   function parseExamSheet(rows, defaults) {
+    defaults = defaults || {};
     var headerIdx = -1, map = null;
     for (var i = 0; i < Math.min(rows.length, 20); i++) {
       var mp = mapExamHeader(rows[i] || []);
       var hits = ['group', 'discipline', 'date', 'teacher', 'type'].filter(function (k) { return mp[k] != null; }).length;
-      if (hits >= 3) { headerIdx = i; map = mp; break; }
+      if (hits >= 3 && mp.discipline != null && mp.date != null) { headerIdx = i; map = mp; break; }
     }
+    if (!map && defaults.map) map = defaults.map;
     if (!map) return null;
-    var out = { records: [], skipped: 0 }, seen = {};
+    var above = rows.slice(0, Math.max(headerIdx, 0)).map(function (r) { return (r || []).join(' '); }).join(' ');
+    var dGroup = groupFromText(above) || defaults.group || '', dKind = examKindOf(above) || defaults.kind || '';
+    var out = { records: [], skipped: 0, bad: [], map: map }, seen = {}, last = null;
     function get(row, key) { return map[key] == null ? '' : row[map[key]]; }
     for (var r = headerIdx + 1; r < rows.length; r++) {
       var row = rows[r] || [];
-      var discipline = cellText(get(row, 'discipline')), group = cellText(get(row, 'group')) || (defaults && defaults.group) || '';
-      var dateRaw = get(row, 'date');
+      var discipline = joinDisc(get(row, 'discipline')), teacherCell = cellText(get(row, 'teacher'));
+      var group = cellText(get(row, 'group')) || dGroup;
+      var dateRaw = get(row, 'date'), num = cellText(get(row, 'num'));
+      if (!discipline && !cellText(dateRaw) && !teacherCell) continue;
+      if (last && !cellText(dateRaw) && !/^\d/.test(num) && (!cellText(get(row, 'group')) || cellText(get(row, 'group')) === last.group)) {
+        if (discipline) last.discipline = joinDisc(last.discipline + ' ' + discipline);
+        if (teacherCell) last.teacher = [last.teacher, teacherCell].filter(Boolean).join(', ');
+        continue;
+      }
       if (!discipline && !cellText(dateRaw)) continue;
       var dt = parseExamDate(dateRaw), type = normType(get(row, 'type'));
-      if (!group || !discipline || !dt || dt.error || !type) { out.skipped++; continue; }
+      if (type === '') type = /(^|[^а-яё])диф/i.test(discipline) ? 'Диф. зачёт' : dKind;
+      var why = !group ? 'не указана группа' : !discipline ? 'нет дисциплины' : !dt ? 'нет даты' : dt.error ? 'не читается дата «' + cellText(dateRaw) + '»' : !type ? 'не понятно, экзамен это или зачёт' : '';
+      if (why) { out.skipped++; out.bad.push({ text: [group, discipline, cellText(dateRaw)].filter(Boolean).join(' · '), why: why }); last = null; continue; }
       var time = dt.time || (map.time != null ? parseTimeText(get(row, 'time')) : '');
       var rt = parseExamDate(get(row, 'retake')), retakeDate = '', retakeTime = '';
       if (rt && !rt.error) {
@@ -424,12 +452,13 @@
         if ((retakeDate + retakeTime) <= (dt.date + time)) { retakeDate = ''; retakeTime = ''; }
       }
       var key = [group, discipline, dt.date, time].join('|').toLowerCase();
-      if (seen[key]) continue;
+      if (seen[key]) { last = null; continue; }
       seen[key] = true;
-      out.records.push({
+      last = {
         group: group, discipline: discipline, date: dt.date, time: time, room: cellText(get(row, 'room')),
-        teacher: cellText(get(row, 'teacher')), type: type, retakeDate: retakeDate, retakeTime: retakeTime
-      });
+        teacher: teacherCell, type: type, retakeDate: retakeDate, retakeTime: retakeTime
+      };
+      out.records.push(last);
     }
     return out;
   }
@@ -496,8 +525,14 @@
     rebuildExams();
   }
   function rebuildExams() {
-    var seen = {}, records = [];
-    EXS.records.concat(EXF.records, EXI.records).forEach(function (r) {
+    var seen = {}, records = [], byGroup = {};
+    // a table an admin uploaded wins over the sheet and data/exams.json for its groups in that session
+    EXI.records.forEach(function (r) { (byGroup[r.group] || (byGroup[r.group] = [])).push(utcOfIso(r.date)); });
+    function overridden(r) {
+      var ds = byGroup[r.group], t = utcOfIso(r.date);
+      return !!ds && ds.some(function (d) { return Math.abs(d - t) <= 30 * DAY; });
+    }
+    EXS.records.concat(EXF.records).filter(function (r) { return !overridden(r); }).concat(EXI.records).forEach(function (r) {
       var k = [r.group, r.discipline, r.date, r.time].join('|').toLowerCase();
       if (!seen[k]) { seen[k] = true; records.push(r); }
     });
@@ -953,6 +988,7 @@
       fillOptions();
       render();
       if ($('bulk-dialog').open) { bulkFillTeachers(); bulkPreview(); }
+      if ($('xi-dialog').open && xi.review) renderExamReview();
       // a view that asked for more groups while this round was loading gets them now
       ensureView();
     });
@@ -2849,7 +2885,7 @@
 
   // ---------- exams loaded from a document (ТЗ, этап 8: «экзамены в документе, импорт») ----------
   var MAMMOTH_URL = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js';
-  var mammothPromise = null, xi = { records: [], skipped: 0, source: '' };
+  var mammothPromise = null, xi = { records: [], skipped: 0, bad: [], source: '', review: null };
   function loadMammoth() {
     if (window.mammoth) return Promise.resolve(window.mammoth);
     if (!mammothPromise) {
@@ -2863,88 +2899,307 @@
     }
     return mammothPromise;
   }
-  // the last group code in the text, the one nearest to the table
-  var GROUP_IN_TEXT = /([А-ЯЁ][А-ЯЁа-яё]*\d?)\s*-\s*(\d{2})(?!\d)/g;
+  // the last group code in the text, the one nearest to the table. «группы № ПСОп-23», «ОДЛу -24»;
+  // a Cyrillic З or О in the year stands for 3 or 0 («ПК-2З»)
+  var GROUP_IN_TEXT = /([А-ЯЁ][А-ЯЁа-яё]*\d?)\s*-\s*([\dЗО]{2})([а-яё]?)(?![\dА-ЯЁа-яё])/g;
   function groupFromText(text) {
     var m, last = '';
     GROUP_IN_TEXT.lastIndex = 0;
-    while ((m = GROUP_IN_TEXT.exec(text || ''))) last = m[1] + '-' + m[2];
+    while ((m = GROUP_IN_TEXT.exec(text || ''))) last = m[1] + '-' + m[2].replace(/З/g, '3').replace(/О/g, '0') + m[3];
     return last;
   }
   function nodeText(td) {
     var ps = td.querySelectorAll('p');
     return ps.length ? Array.prototype.map.call(ps, function (q) { return q.textContent; }).join('\n') : td.textContent;
   }
-  // every table of an HTML document, with the text right above it (it often names the group)
+  // every table of an HTML document in reading order, with the text between it and the table before
+  // (it names the group) and the kind of the document so far («экзаменационной сессии», «зачетной недели»)
   function tablesFromHtml(html) {
-    var doc = new DOMParser().parseFromString(html, 'text/html');
-    return Array.prototype.map.call(doc.querySelectorAll('table'), function (t) {
-      var ctx = '', el = t.previousElementSibling, n = 0;
-      while (el && n < 4 && el.tagName !== 'TABLE') { ctx = el.textContent + ' ' + ctx; el = el.previousElementSibling; n++; }
-      return { rows: Array.prototype.map.call(t.querySelectorAll('tr'), function (tr) { return Array.prototype.map.call(tr.children, nodeText); }), context: ctx };
-    });
+    var doc = new DOMParser().parseFromString(html, 'text/html'), out = [], ctx = '', kind = '';
+    (function walk(el) {
+      Array.prototype.forEach.call(el.children, function (ch) {
+        if (ch.tagName === 'TABLE') {
+          var rows = Array.prototype.filter.call(ch.querySelectorAll('tr'), function (tr) { return tr.closest('table') === ch; });
+          out.push({ rows: rows.map(function (tr) { return Array.prototype.map.call(tr.children, nodeText); }), context: ctx, kind: kind });
+          ctx = '';
+          return;
+        }
+        if (ch.querySelector('table')) { walk(ch); return; }
+        var t = ch.textContent || '', k = examKindOf(t);
+        if (k) kind = k;
+        ctx += ' ' + t;
+      });
+    })(doc.body);
+    return out;
   }
   function examsFromTables(tables) {
-    var records = [], skipped = 0;
+    var records = [], skipped = 0, bad = [], group = '', map = null, cols = 0;
     tables.forEach(function (t) {
-      var res = parseExamSheet(t.rows, { group: groupFromText(t.context) });
-      if (res) { records = records.concat(res.records); skipped += res.skipped; }
+      // in a document a table without its own group line goes on with the group above it (a table
+      // broken over a page); every sheet of a workbook stands on its own
+      var own = groupFromText(t.context);
+      group = t.kind == null ? own : own || group;
+      var width = Math.max.apply(null, [0].concat(t.rows.map(function (r) { return r.length; })));
+      var res = parseExamSheet(t.rows, { group: group, kind: t.kind || '', map: t.kind != null && width === cols ? map : null });
+      if (res) { records = records.concat(res.records); skipped += res.skipped; bad = bad.concat(res.bad); map = res.map; cols = width; }
     });
-    return { records: records, skipped: skipped };
+    return { records: records, skipped: skipped, bad: bad };
   }
   function readExamFile(file) {
     var name = file.name || '', ext = name.toLowerCase().split('.').pop();
+    if (ext === 'doc' || ext === 'rtf' || ext === 'odt') {
+      return Promise.reject(new Error('файлы .' + ext + ' браузер не читает. Откройте документ в Word и сохраните как .docx (Файл → Сохранить как → Документ Word), потом загрузите его'));
+    }
     return file.arrayBuffer().then(function (buf) {
       if (ext === 'docx') {
         return loadMammoth().then(function (m) { return m.convertToHtml({ arrayBuffer: buf }); }).then(function (r) { return examsFromTables(tablesFromHtml(r.value)); });
       }
       if (ext === 'html' || ext === 'htm') return examsFromTables(tablesFromHtml(new TextDecoder().decode(buf)));
       // SheetJS reads a CSV as single-byte text, so Cyrillic in UTF-8 goes through the page's own parser
-      if (ext === 'csv') return examsFromTables([{ rows: parseCSV(new TextDecoder().decode(buf).replace(/^﻿/, '')), context: name }]);
+      if (ext === 'csv') return examsFromTables([{ rows: parseCSV(new TextDecoder().decode(buf).replace(/^﻿/, '')), context: name, kind: null }]);
       return loadXlsx().then(function (X) {
-        var wb = X.read(buf, { type: 'array' });
+        var wb = X.read(buf, { type: 'array', cellDates: false });
         return examsFromTables(wb.SheetNames.map(function (sn) {
-          var rows = X.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '' }).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
-          return { rows: rows, context: sn };
+          var rows = X.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' }).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
+          return { rows: rows, context: sn, kind: null };
         }));
       });
     });
   }
+
+  // ---------- the uploaded table against everything the site knows ----------
+  // Every row is checked against the group list, the teachers of the timetable, the study plan
+  // (is it an exam or a credit this term), the PDF schedule (attestation days), holidays, the other
+  // rows of the file and the lessons that stand at that time. Then the list of exams is changed to
+  // match the table for the groups it covers, and the group's pairs in the exam's hours are cancelled.
+  function bare(s) { return String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, ''); }
+  function canonGroup(g) {
+    var fixed = cellText(g).replace(/(-\s*)([\dЗО]{2})(?![\dА-ЯЁа-яё])/, function (m, a, y) { return a + y.replace(/З/g, '3').replace(/О/g, '0'); });
+    var flat = bare(fixed);
+    var hit = DB.groups.filter(function (x) { return bare(x) === flat; })[0];
+    return hit || (DB.groups.length ? resolveKey(fixed.replace(/\s+/g, ''), DB.groups, courseOf) : '') || fixed.replace(/\s*-\s*/, '-');
+  }
+  // «Иванова А. С.» → «Иванова А.С.», and the spelling used in the timetable when there is one
+  function canonTeacher(t) {
+    return splitTeachers(String(t || '').replace(/\n/g, ',')).map(function (x) {
+      var n = cellText(x).replace(/\.\s+(?=[А-ЯЁ]\.)/g, '.');
+      var key = bare(n), hit = DB.teachers.filter(function (y) { return bare(y) === key; })[0];
+      return hit || n;
+    }).filter(Boolean).join(', ');
+  }
+  function sameDisc(a, b) { return bare(a) === bare(b) || Hours.matchScore(a, b) >= 90; }
+  function shiftIso(iso, days) { return isoOfUtc(utcOfIso(iso) + days * DAY); }
+  var PLAN_FORM_TYPE = { 'Э': 'Экзамен', 'ДЗ': 'Диф. зачёт', 'ЗаО': 'Диф. зачёт', 'З': 'Зачёт' };
+  // the hours an exam takes: [start, end) in minutes, null for the whole day
+  function examSpan(r) {
+    if (!r.time) return null;
+    var st = minutesOf(r.time);
+    return [st, st + (r.type === 'Экзамен' ? (CFG.examMinutes || 240) : 90)];
+  }
+  function dayLetter(group, iso) {
+    var gf = grafikFor(group);
+    if (!gf) return '';
+    var i = GRAFIK.data.weeks.indexOf(isoOfUtc(mondayOfUtc(utcOfIso(iso)))), wd = isoToDate(iso).getDay();
+    return i < 0 || wd === 0 ? '' : gf.g.days[i].charAt(Math.min(wd, 5) - 1);
+  }
+  function reviewExams(input) {
+    var today = todayISO(), records = input.map(function (r) {
+      return Object.assign({}, r, { group: canonGroup(r.group), teacher: canonTeacher(r.teacher), rawGroup: r.group });
+    });
+    var win = {};
+    records.forEach(function (r) {
+      var w = win[r.group] || (win[r.group] = { min: r.date, max: r.date });
+      if (r.date < w.min) w.min = r.date;
+      if (r.date > w.max) w.max = r.date;
+    });
+    // what the site shows now for these groups in this session (±30 days around the dates of the file)
+    function inWin(r) { var w = win[r.group]; return !!w && r.date >= shiftIso(w.min, -30) && r.date <= shiftIso(w.max, 30); }
+    var current = EX.records.filter(inWin), used = [];
+    var items = records.map(function (r, idx) {
+      var notes = [], cancels = [];
+      function note(level, text) { notes.push({ level: level, text: text }); }
+      // the record it replaces
+      var old = null;
+      current.forEach(function (c, ci) { if (!old && used.indexOf(ci) < 0 && c.group === r.group && sameDisc(c.discipline, r.discipline) && c.type === r.type) { old = c; used.push(ci); } });
+      if (!old) current.forEach(function (c, ci) { if (!old && used.indexOf(ci) < 0 && c.group === r.group && sameDisc(c.discipline, r.discipline)) { old = c; used.push(ci); } });
+      var changes = [];
+      if (old) {
+        if (old.date !== r.date || (old.time || '') !== (r.time || '')) changes.push('было ' + fmtShort(old.date) + (old.time ? ' ' + old.time : ''));
+        if ((old.room || '') !== (r.room || '')) changes.push('аудитория была ' + (old.room || '—'));
+        if (bare(old.teacher) !== bare(r.teacher)) changes.push('преподаватель был ' + (old.teacher || '—'));
+        if (old.type !== r.type) changes.push('было: ' + old.type.toLowerCase());
+        if ((old.retakeDate || '') !== (r.retakeDate || '') || (old.retakeTime || '') !== (r.retakeTime || '')) changes.push('пересдача была ' + (old.retakeDate ? fmtShort(old.retakeDate) + (old.retakeTime ? ' ' + old.retakeTime : '') : '—'));
+      }
+      // the group, the teacher
+      if (DB.groups.length && DB.groups.indexOf(r.group) < 0) note('warn', 'Группы «' + r.rawGroup + '» нет в списке групп.');
+      else if (bare(r.rawGroup) !== bare(r.group)) note('info', 'Группа «' + r.rawGroup + '» записана как ' + r.group + '.');
+      splitTeachers(r.teacher).forEach(function (t) { if (DB.teachers.length && DB.teachers.indexOf(t) < 0 && !/^вак/i.test(t)) note('info', 'Преподавателя ' + t + ' нет в расписании занятий: проверьте, как он записан.'); });
+      // the study plan: is it on the plan, and is it an exam or a credit this term
+      var plan = planFor(r.group);
+      if (plan) {
+        var best = null, score = 59;
+        plan.subjects.forEach(function (sb) { var sc = Hours.matchScore(sb.name, r.discipline); if (sc > score) { best = sb; score = sc; } });
+        if (!best) note('warn', 'Такого предмета нет в учебном плане группы.');
+        else {
+          var half = r.date < half2Of(r.group) ? 1 : 2, form = best.form[half - 1], want = PLAN_FORM_TYPE[form];
+          if (want && want !== r.type) note('warn', 'По учебному плану в ' + half + '-м семестре — ' + want.toLowerCase() + ', а в таблице — ' + r.type.toLowerCase() + '.');
+          else if (!form) {
+            var other = best.form[2 - half];
+            note('info', other ? 'По учебному плану аттестация по предмету — в ' + (3 - half) + '-м семестре (' + (PLAN_FORM_TYPE[other] || other).toLowerCase() + ').' : 'В учебном плане у предмета в ' + half + '-м семестре нет формы аттестации.');
+          }
+        }
+      }
+      // the date
+      var wd = isoToDate(r.date).getDay(), letter = dayLetter(r.group, r.date);
+      if (r.date < today) note('info', 'Дата уже прошла.');
+      if (wd === 0) note('warn', 'Это воскресенье.');
+      if (isHoliday(r.date)) note('warn', 'Это праздничный день.');
+      if (letter && letter !== 'A' && letter !== 'G') note('info', 'По графику учебного процесса в этот день: ' + (WEEK_TYPES[letter] || letter) + '.');
+      if (r.retakeDate && isHoliday(r.retakeDate)) note('warn', 'Пересдача выпадает на праздник.');
+      // the other rows of the file
+      var span = examSpan(r);
+      records.forEach(function (o, j) {
+        if (j === idx || o.date !== r.date) return;
+        if (o.group === r.group && j < idx && !sameDisc(o.discipline, r.discipline)) note('warn', 'В этот же день у группы ещё: ' + splitCode(o.discipline).name + '.');
+        var os = examSpan(o), overlap = span && os && os[0] < span[1] && os[1] > span[0];
+        if (!overlap || o.group === r.group || sameDisc(o.discipline, r.discipline)) return;
+        var shared = splitTeachers(o.teacher).filter(function (t) { return splitTeachers(r.teacher).indexOf(t) >= 0; });
+        if (shared.length) note('warn', shared.join(', ') + ' в это время принимает ещё ' + splitCode(o.discipline).name + ' у группы ' + o.group + '.');
+        if (r.room && o.room && bare(r.room) === bare(o.room)) note('warn', 'Аудитория ' + r.room + ' в это время занята: ' + o.group + ', ' + splitCode(o.discipline).name + '.');
+      });
+      // lessons at that time: the group's pairs give way to an exam; the teacher's pairs elsewhere are a clash
+      var sheet = DB.sheets[r.group];
+      if (sheet) {
+        (sheet.byDay[r.date] || []).forEach(function (row) {
+          if (row.ghost || !row.disc) return;
+          var s0 = minutesOf(row.start), s1 = minutesOf(row.end);
+          if (span ? !(s0 < span[1] && s1 > span[0]) : r.type !== 'Экзамен') return;
+          cancels.push({ row: row, on: r.type === 'Экзамен' && !(row.edit && row.edit.kind === 'add') });
+        });
+      } else if (DB.groups.indexOf(r.group) >= 0) note('info', 'Расписание группы ещё не загружено, пары в этот день не проверены.');
+      if (span) splitTeachers(r.teacher).forEach(function (t) {
+        Object.keys(DB.sheets).forEach(function (g) {
+          if (g === r.group) return;
+          (DB.sheets[g].byDay[r.date] || []).forEach(function (row) {
+            if (!row.ghost && splitTeachers(row.teacher).indexOf(t) >= 0 && minutesOf(row.start) < span[1] && minutesOf(row.end) > span[0]) note('warn', t + ' в это время ведёт пару в группе ' + g + ' (' + slotLabel(row.start) + ').');
+          });
+        });
+      });
+      return { rec: r, status: !old ? 'new' : changes.length ? 'changed' : 'same', changes: changes, old: old, notes: notes, cancels: cancels };
+    });
+    var removed = current.filter(function (c, ci) { return used.indexOf(ci) < 0; });
+    return { items: items, removed: removed, groups: Object.keys(win).sort(cmpRu), win: win };
+  }
   function openExamImport() {
-    xi = { records: [], skipped: 0, source: '' };
+    xi = { records: [], skipped: 0, bad: [], source: '', review: null };
     $('xi-file').value = '';
     $('xi-url').value = '';
     $('xi-status').textContent = '';
     $('xi-preview').innerHTML = '';
     $('xi-save').disabled = true;
+    $('xi-save').textContent = 'Применить';
     $('xi-dialog').showModal();
+    // the teachers' pairs in every group are needed to see clashes
+    ensureAll();
   }
+  var XI_STATUS = { 'new': ['Новая запись', 'b-add'], changed: ['Изменится', 'b-replace'], same: ['Без изменений', 's-past'] };
   function showExamPreview(res, source) {
-    xi = { records: res.records, skipped: res.skipped, source: source };
-    $('xi-save').disabled = !res.records.length;
-    $('xi-save').textContent = res.records.length ? 'Заменить список экзаменов (' + res.records.length + ')' : 'Заменить список экзаменов';
+    xi = { records: res.records, skipped: res.skipped, bad: res.bad || [], source: source, review: null };
     if (!res.records.length) {
-      $('xi-status').textContent = 'В документе не нашлось таблицы с экзаменами. Нужны колонки: Группа (или группа в заголовке над таблицей), Дисциплина, Дата, Тип аттестации — как в шаблоне.';
-      $('xi-preview').innerHTML = '';
+      $('xi-save').disabled = true;
+      $('xi-status').textContent = 'В документе не нашлось таблицы с экзаменами. Нужны колонки «Дисциплина» и «Дата»; группа — колонкой или строкой над таблицей («группы № ИС2-25»); экзамен это или зачёт — колонкой «Тип аттестации» или заголовком документа («…экзаменационной сессии», «…зачётной недели»).' +
+        (xi.bad.length ? ' Не прочитано строк: ' + xi.bad.length + '.' : '');
+      $('xi-preview').innerHTML = xi.bad.length ? badRowsHTML(xi.bad) : '';
       return;
     }
-    var groups = uniq(res.records.map(function (r) { return r.group; })).sort(cmpRu);
-    $('xi-status').textContent = 'Прочитано ' + count(res.records.length, 'запись', 'записи', 'записей') + ' для ' + count(groups.length, 'группы', 'групп', 'групп') + (res.skipped ? ', не прочитано строк: ' + res.skipped : '') + '.';
-    $('xi-preview').innerHTML = '<div class="table-wrap"><table class="smart"><thead><tr><th scope="col">Группа</th><th scope="col">Дисциплина</th><th scope="col">Дата</th><th scope="col">Тип</th></tr></thead><tbody>' +
-      res.records.slice(0, 8).map(function (r) {
-        return '<tr><td data-label="Группа"><span class="grp" translate="no">' + esc(r.group) + '</span></td><td class="title" data-label="Дисциплина">' + discHTML(r.discipline) + '</td>' +
-          '<td data-label="Дата">' + esc(fmtShort(r.date)) + (r.time ? ', ' + esc(r.time) : '') + '</td><td data-label="Тип">' + esc(r.type) + '</td></tr>';
-      }).join('') + '</tbody></table></div>' + (res.records.length > 8 ? '<p class="hint">И ещё ' + (res.records.length - 8) + '.</p>' : '');
+    renderExamReview();
+  }
+  function badRowsHTML(bad) {
+    return '<details class="xi-bad"><summary>Строки, которые не прочитались: ' + bad.length + '</summary><ul>' +
+      bad.slice(0, 60).map(function (b) { return '<li>' + esc(b.text || '(пустая строка)') + ' — ' + esc(b.why) + '</li>'; }).join('') + '</ul></details>';
+  }
+  function renderExamReview() {
+    var keep = {};
+    if (xi.review) xi.review.items.forEach(function (it, i) { it.cancels.forEach(function (c, j) { keep[i + ':' + j] = c.on; }); });
+    var rv = reviewExams(xi.records);
+    rv.items.forEach(function (it, i) { it.cancels.forEach(function (c, j) { if (keep[i + ':' + j] != null) c.on = keep[i + ':' + j]; }); });
+    xi.review = rv;
+    var n = { 'new': 0, changed: 0, same: 0 }, warn = 0, pairs = 0;
+    rv.items.forEach(function (it) { n[it.status]++; if (it.notes.some(function (x) { return x.level === 'warn'; })) warn++; it.cancels.forEach(function (c) { if (c.on) pairs++; }); });
+    var loading = net.bulk ? ' Загружаю расписание групп для проверки: ' + net.bulk.done + ' из ' + net.bulk.total + '…' : '';
+    $('xi-status').textContent = 'Прочитано ' + count(rv.items.length, 'запись', 'записи', 'записей') + ' для ' + count(rv.groups.length, 'группы', 'групп', 'групп') + '. ' +
+      'Новых: ' + n['new'] + ', изменится: ' + n.changed + ', без изменений: ' + n.same + (rv.removed.length ? ', уберётся: ' + rv.removed.length : '') + '. ' +
+      (warn ? 'С замечаниями: ' + warn + '. ' : 'Замечаний нет. ') + (xi.skipped ? 'Не прочитано строк: ' + xi.skipped + '.' : '') + loading;
+    var order = rv.items.map(function (it, i) { return i; }).sort(function (a, b) {
+      var A = rv.items[a], B = rv.items[b], w = function (it) { return it.notes.some(function (x) { return x.level === 'warn'; }) ? 0 : it.status === 'changed' ? 1 : it.status === 'new' ? 2 : 3; };
+      return w(A) - w(B) || cmpRu(A.rec.group, B.rec.group) || (A.rec.date < B.rec.date ? -1 : A.rec.date > B.rec.date ? 1 : 0);
+    });
+    var body = order.map(function (i) {
+      var it = rv.items[i], r = it.rec, st = XI_STATUS[it.status];
+      var notes = it.notes.map(function (x) { return '<li class="xi-' + x.level + '">' + esc(x.text) + '</li>'; }).join('');
+      var cancels = it.cancels.map(function (c, j) {
+        var row = c.row;
+        return '<li><label><input type="checkbox" data-xi-cancel="' + i + ':' + j + '"' + (c.on ? ' checked' : '') + '> Отменить ' + esc(slotLabel(row.start)) + ': ' + esc(splitCode(row.disc).name) + (row.teacher ? ', ' + esc(row.teacher) : '') + (row.sub ? ', ' + row.sub + ' подгруппа' : '') + '</label></li>';
+      }).join('');
+      return '<tr><td data-label="Группа"><span class="grp" translate="no">' + esc(r.group) + '</span></td>' +
+        '<td class="title" data-label="Дисциплина">' + discHTML(r.discipline) + '<span class="aka">' + esc(r.type) + (r.teacher ? ' · ' + esc(r.teacher) : '') + (r.room ? ' · ауд. ' + esc(r.room) : '') + '</span></td>' +
+        '<td data-label="Когда">' + esc(fmtShort(r.date)) + (r.time ? ', ' + esc(r.time) : '') + (r.retakeDate ? '<span class="aka">пересдача ' + esc(fmtShort(r.retakeDate)) + (r.retakeTime ? ', ' + esc(r.retakeTime) : '') + '</span>' : '') + '</td>' +
+        '<td data-label="Что будет"><span class="badge ' + st[1] + '">' + st[0] + '</span>' + (it.changes.length ? '<span class="aka">' + esc(it.changes.join('; ')) + '</span>' : '') + '</td>' +
+        '<td data-label="Проверка">' + (notes || cancels ? '<ul class="xi-notes">' + notes + cancels + '</ul>' : '<span class="xi-ok">✓ всё сходится</span>') + '</td></tr>';
+    }).join('');
+    var removed = rv.removed.length ? '<details class="xi-bad" open><summary>Уберутся с сайта, потому что их нет в новой таблице: ' + rv.removed.length + '</summary><ul>' +
+      rv.removed.map(function (c) { return '<li><span class="grp" translate="no">' + esc(c.group) + '</span> ' + esc(splitCode(c.discipline).name) + ', ' + esc(c.type.toLowerCase()) + ', ' + esc(fmtShort(c.date)) + (c.time ? ' ' + esc(c.time) : '') + '</li>'; }).join('') + '</ul></details>' : '';
+    $('xi-preview').innerHTML = '<p class="hint">Таблица заменит экзамены и зачёты только у этих групп: ' + esc(rv.groups.join(', ')) + '. У остальных групп ничего не изменится. Отмеченные пары в часы экзамена будут отменены правкой администратора.</p>' +
+      '<div class="table-wrap"><table class="smart xi-table"><thead><tr><th scope="col">Группа</th><th scope="col">Дисциплина</th><th scope="col">Когда</th><th scope="col">Что будет</th><th scope="col">Проверка</th></tr></thead><tbody>' + body + '</tbody></table></div>' +
+      removed + (xi.bad.length ? badRowsHTML(xi.bad) : '');
+    $('xi-save').disabled = false;
+    $('xi-save').textContent = 'Применить: ' + count(rv.items.length, 'запись', 'записи', 'записей') + (pairs ? ', отменить ' + count(pairs, 'пару', 'пары', 'пар') : '');
   }
   function saveExamImport() {
+    var rv = xi.review;
+    if (!rv) return;
     var btn = $('xi-save');
     btn.disabled = true;
     btn.textContent = 'Сохраняю…';
-    Api.examsImport(xi.records, xi.source).then(function (r) {
+    // exams uploaded earlier stay for the other groups and for other sessions of these groups
+    var keep = EXI.raw.filter(function (r) {
+      var w = rv.win[r.group];
+      return !(w && r.date >= shiftIso(w.min, -30) && r.date <= shiftIso(w.max, 30));
+    }).map(function (r) {
+      return { group: r.group, discipline: r.discipline, date: r.date, time: r.time, room: r.room, teacher: r.teacher, type: r.type, retakeDate: r.retakeDate, retakeTime: r.retakeTime };
+    });
+    var fresh = rv.items.map(function (it) {
+      var r = it.rec;
+      return { group: r.group, discipline: r.discipline, date: r.date, time: r.time, room: r.room, teacher: r.teacher, type: r.type, retakeDate: r.retakeDate, retakeTime: r.retakeTime };
+    });
+    var batch = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cancels = [], seen = {};
+    rv.items.forEach(function (it) {
+      it.cancels.forEach(function (c) {
+        var row = c.row, k = row.group + '|' + row.day + '|' + row.start + '|' + (row.sub || 0);
+        if (!c.on || seen[k] || (row.edit && row.edit.kind === 'add')) return;
+        seen[k] = true;
+        var was = JSON.stringify(slotRows(row.group, row.day, row.start).filter(function (x) { return !x.ghost && !x.edit; }).map(function (x) { return { disc: x.disc, teacher: x.teacher, room: x.room, sub: x.sub }; }));
+        cancels.push({ id: row.edit ? row.edit.id : '', kind: 'cancel', group: row.group, date: row.day, start: row.start, end: row.end, sub: +row.sub || 0,
+          note: (it.rec.type === 'Экзамен' ? 'экзамен: ' : it.rec.type.toLowerCase() + ': ') + splitCode(it.rec.discipline).name, was: row.edit ? row.edit.was : was });
+      });
+    });
+    var note = 'экзамены из «' + (xi.source || 'документа') + '»';
+    Api.examsImport(keep.concat(fresh), xi.source).then(function () {
+      var chunks = [];
+      for (var i = 0; i < cancels.length; i += 100) chunks.push(cancels.slice(i, i + 100));
+      return chunks.reduce(function (pr, ch) { return pr.then(function () { return Api.save(ch, { batch: batch, comment: note }).then(mergeEdits); }); }, Promise.resolve());
+    }).then(function () {
       HIST.status = 'idle';
       $('xi-dialog').close();
-      return loadEdits().then(function () { toast('Список экзаменов заменён: ' + count(r.count, 'запись', 'записи', 'записей') + '. Прошлый список можно вернуть кнопкой «Откатить» в журнале правок.'); });
-    }, function (err) { $('xi-status').textContent = err.message; btn.disabled = false; btn.textContent = 'Заменить список экзаменов'; });
+      return loadEdits().then(function () {
+        toast('Экзамены обновлены: ' + count(fresh.length, 'запись', 'записи', 'записей') + ' для ' + count(rv.groups.length, 'группы', 'групп', 'групп') +
+          (cancels.length ? ', отменено ' + count(cancels.length, 'пара', 'пары', 'пар') : '') + '. Вернуть прошлый список можно в журнале правок («Откатить»), отмены пар — в разделе «Изменения».');
+      });
+    }, function (err) {
+      $('xi-status').textContent = err.message + (EDITS.list.some(function (x) { return x.batch === batch; }) ? ' Экзамены сохранены, часть отмен пар тоже — их видно в разделе «Изменения».' : '');
+      btn.disabled = false;
+      btn.textContent = 'Применить';
+    });
   }
 
   // Excel export of the filtered list in the import format (ТЗ БП 1.5 «Экспорт в Excel»)
@@ -3772,11 +4027,34 @@
     if (b) { state.bookHalf = +b.getAttribute('data-value'); render(); }
   });
   $('e-import').addEventListener('click', openExamImport);
-  $('xi-file').addEventListener('change', function (e) {
-    var f = e.target.files && e.target.files[0];
+  function takeExamFile(f) {
     if (!f) return;
     $('xi-status').textContent = 'Читаю «' + f.name + '»…';
-    readExamFile(f).then(function (res) { showExamPreview(res, f.name); }, function (err) { $('xi-status').textContent = 'Не удалось прочитать файл: ' + err.message; });
+    $('xi-preview').innerHTML = '';
+    $('xi-save').disabled = true;
+    readExamFile(f).then(function (res) { showExamPreview(res, f.name); }, function (err) { $('xi-status').textContent = 'Не удалось прочитать файл: ' + err.message + '.'; });
+  }
+  $('xi-file').addEventListener('change', function (e) { takeExamFile(e.target.files && e.target.files[0]); });
+  $('xi-preview').addEventListener('change', function (e) {
+    var k = e.target.getAttribute('data-xi-cancel');
+    if (!k || !xi.review) return;
+    var p = k.split(':'), it = xi.review.items[+p[0]], c = it && it.cancels[+p[1]];
+    if (c) { c.on = e.target.checked; renderExamReview(); }
+  });
+  // a file dropped on the dialog, or on the exams page by an admin, is read right away
+  function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+  document.addEventListener('dragover', function (e) {
+    if (!hasFiles(e) || !isAdmin() || (state.view !== 'exams' && !$('xi-dialog').open)) return;
+    e.preventDefault();
+    $('xi-drop').classList.add('is-over');
+  });
+  document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) $('xi-drop').classList.remove('is-over'); });
+  document.addEventListener('drop', function (e) {
+    if (!hasFiles(e) || !isAdmin() || (state.view !== 'exams' && !$('xi-dialog').open)) return;
+    e.preventDefault();
+    $('xi-drop').classList.remove('is-over');
+    if (!$('xi-dialog').open) openExamImport();
+    takeExamFile(e.dataTransfer.files[0]);
   });
   $('xi-read').addEventListener('click', function () {
     var u = $('xi-url').value.trim();
