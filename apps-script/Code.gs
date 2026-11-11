@@ -545,16 +545,31 @@ function revertExams(user, h, comment) {
   return { ok: true, count: prev.length };
 }
 // A Google Doc opened «for everyone with the link» comes back as HTML; the site reads its tables.
+// A Google link the browser could not read itself: a Google Doc comes back as HTML, a Google Sheet as
+// .xlsx and a file on Google Drive as it is, both in base64. The file must be open to «anyone with the link».
 function fetchDoc(req) {
   needSession(req);
-  var m = /docs\.google\.com\/document\/d\/([\w-]{20,})/.exec(String(req.url || ''));
-  if (!m) return fail('Нужна ссылка на Google-документ вида docs.google.com/document/d/…');
-  var r = UrlFetchApp.fetch('https://docs.google.com/document/d/' + m[1] + '/export?format=html', { muteHttpExceptions: true, followRedirects: true });
-  var type = String((r.getHeaders() || {})['Content-Type'] || '');
-  if (r.getResponseCode() !== 200 || type.indexOf('text/html') < 0) {
-    return fail('Документ не открылся. Откройте доступ «Все, у кого есть ссылка» или скачайте его как .docx и загрузите файлом.');
+  var u = String(req.url || ''), m, url, name;
+  if ((m = /docs\.google\.com\/document\/d\/([\w-]{20,})/.exec(u))) {
+    var r = UrlFetchApp.fetch('https://docs.google.com/document/d/' + m[1] + '/export?format=html', { muteHttpExceptions: true, followRedirects: true });
+    var type = String((r.getHeaders() || {})['Content-Type'] || '');
+    if (r.getResponseCode() !== 200 || type.indexOf('text/html') < 0) {
+      return fail('Документ не открылся. Откройте доступ «Все, у кого есть ссылка» или скачайте его как .docx и загрузите файлом.');
+    }
+    return { ok: true, html: r.getContentText(), name: 'Google-документ' };
   }
-  return { ok: true, html: r.getContentText() };
+  if ((m = /docs\.google\.com\/spreadsheets\/d\/([\w-]{20,})/.exec(u))) { url = 'https://docs.google.com/spreadsheets/d/' + m[1] + '/export?format=xlsx'; name = 'Google-таблица.xlsx'; }
+  else if ((m = /drive\.google\.com\/(?:file\/d\/|open\?(?:[^#]*&)?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})/.exec(u))) { url = 'https://drive.google.com/uc?export=download&id=' + m[1]; name = ''; }
+  else return fail('Нужна ссылка на Google-таблицу, Google-документ или файл на Google Диске');
+  var f = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  var ct = String((f.getHeaders() || {})['Content-Type'] || ''), cd = String((f.getHeaders() || {})['Content-Disposition'] || '');
+  if (f.getResponseCode() !== 200 || (ct.indexOf('text/html') >= 0 && !/\.html?/i.test(cd))) {
+    return fail('Файл не открылся. Откройте доступ «Все, у кого есть ссылка → Читатель» или скачайте файл и загрузите его.');
+  }
+  var bytes = f.getContent();
+  if (bytes.length > 15 * 1024 * 1024) return fail('Файл больше 15 МБ: скачайте его и загрузите с компьютера.');
+  var fn = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(cd);
+  return { ok: true, data: Utilities.base64Encode(bytes), name: fn ? decodeURIComponent(fn[1]) : name };
 }
 
 // ---------- spreadsheet menu for the owner ----------
