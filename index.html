@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=4.1">
+  <link rel="stylesheet" href="styles.css?v=4.2">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -500,6 +500,7 @@
       <h2 id="xi-title">Таблица экзаменов</h2>
       <p class="hint">Перетащите сюда файл или выберите его: Excel (.xlsx, .xls, .csv), Word (.docx), или вставьте ссылку на Google-таблицу, Google-документ или файл на Google Диске (доступ «Все, у кого есть ссылка»). Подойдут и графики колледжа «Графики экзаменов…» и «График зачётной недели…»: группа берётся из строки «группы № …» над таблицей, экзамен или зачёт — из заголовка. Старый формат Word (.doc) сначала сохраните как .docx.</p>
       <p class="hint">Сайт сверит каждую строку со списком групп, учебным планом, графиком учебного процесса, преподавателями и расписанием пар, покажет, что изменится, и только потом сохранит. Меняются экзамены только тех групп, что есть в таблице.</p>
+      <p class="hint">Шаблоны: <a href="shablony/Шаблон экзаменов.xlsx" download>Excel</a> · <a href="shablony/Шаблон экзаменов (Word, как у колледжа).docx" download>Word, как у колледжа</a>. Примеры: <a href="shablony/Пример таблицы экзаменов.xlsx" download>Excel</a> · <a href="shablony/Пример графика экзаменов (как у колледжа).docx" download>Word</a>.</p>
       <label class="xi-drop" id="xi-drop" for="xi-file"><span class="xi-drop-title">Перетащите файл сюда</span><span class="hint">или нажмите, чтобы выбрать</span>
         <input type="file" id="xi-file" name="exam_file" accept=".xlsx,.xls,.csv,.docx,.doc,.html,.htm"></label>
       <div class="xi-url">
@@ -523,6 +524,7 @@
         <li><strong>Сроки практики</strong>, как в «Учебном графике 26-27»: группа и даты начала и окончания УП, ПП, ПДП, экзаменов, каникул. Сайт поменяет эти недели в графике учебного процесса и уберёт обычные пары группы в дни практики.</li>
         <li><strong>Расписание практики по парам</strong>: дата, пара, наименование (тема или вид работ), руководитель; группа — колонкой, в заголовке или в имени файла («ИС24_…_РАСП_уп.08»). В эти дни пары группы заменятся парами практики.</li>
       </ul>
+      <p class="hint">Шаблоны: <a href="shablony/Шаблон сроков практики.xlsx" download>сроки практики</a> · <a href="shablony/Шаблон расписания практики по парам.xlsx" download>практика по парам</a>. Примеры: <a href="shablony/Пример сроков практики.xlsx" download>сроки</a> · <a href="shablony/Пример расписания практики по парам.docx" download>по парам</a>.</p>
       <label class="xi-drop" id="pi-drop" for="pi-file"><span class="xi-drop-title">Перетащите файл сюда</span><span class="hint">или нажмите, чтобы выбрать</span>
         <input type="file" id="pi-file" name="practice_file" accept=".xlsx,.xls,.csv,.docx,.doc,.html,.htm"></label>
       <div class="xi-url">
@@ -552,10 +554,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=4.1"></script>
-  <script src="hours.js?v=4.1"></script>
-  <script src="gas-sim.js?v=4.1"></script>
-  <script src="api.js?v=4.1"></script>
-  <script src="app.js?v=4.1"></script>
+  <script src="config.js?v=4.2"></script>
+  <script src="hours.js?v=4.2"></script>
+  <script src="gas-sim.js?v=4.2"></script>
+  <script src="api.js?v=4.2"></script>
+  <script src="app.js?v=4.2"></script>
 </body>
 </html>

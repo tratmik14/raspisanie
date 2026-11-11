@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '4.1';
+  var SITE_VERSION = '4.2';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -356,6 +356,9 @@
       if (m[4] != null) { H = +m[4]; M = +m[5]; }
     } else if ((m = /^(\d{1,2})[./](\d{1,2})[./](\d{2,4})(?:\s*(?:г\.?)?,?\s*(?:в\s*)?(\d{1,2})[:.](\d{2}))?/i.exec(s))) {
       d = +m[1]; mo = +m[2]; y = +m[3]; if (y < 100) y += 2000;
+      // a workbook saved with English settings writes the month first: «12/23/2026»
+      if (mo > 12 && d <= 12 && /\//.test(m[0])) { var sw = d; d = mo; mo = sw; }
+      if (m[4] != null && /\bpm\b/i.test(s) && +m[4] < 12) m[4] = String(+m[4] + 12);
       if (m[4] != null) { H = +m[4]; M = +m[5]; }
     } else if ((m = /^(\d{1,2})\s+([а-я]+)\.?\s+(\d{4})/i.exec(s))) {
       d = +m[1]; mo = monthFromWord(m[2]); y = +m[3];
@@ -420,18 +423,20 @@
     for (var i = 0; i < Math.min(rows.length, 20); i++) {
       var mp = mapExamHeader(rows[i] || []);
       var hits = ['group', 'discipline', 'date', 'teacher', 'type'].filter(function (k) { return mp[k] != null; }).length;
-      if (hits >= 3 && mp.discipline != null && mp.date != null) { headerIdx = i; map = mp; break; }
+      var more = ['group', 'teacher', 'type', 'time', 'room', 'num'].filter(function (k) { return mp[k] != null; }).length;
+      if (mp.discipline != null && mp.date != null && (hits >= 3 || more >= 1)) { headerIdx = i; map = mp; break; }
     }
     if (!map && defaults.map) map = defaults.map;
     if (!map) return null;
     var above = rows.slice(0, Math.max(headerIdx, 0)).map(function (r) { return (r || []).join(' '); }).join(' ');
     var dGroup = groupFromText(above) || defaults.group || '', dKind = examKindOf(above) || defaults.kind || '';
-    var out = { records: [], skipped: 0, bad: [], map: map }, seen = {}, last = null;
+    var out = { records: [], skipped: 0, bad: [], map: map, header: headerIdx >= 0 }, seen = {}, last = null;
     function get(row, key) { return map[key] == null ? '' : row[map[key]]; }
     for (var r = headerIdx + 1; r < rows.length; r++) {
       var row = rows[r] || [];
       var discipline = joinDisc(get(row, 'discipline')), teacherCell = cellText(get(row, 'teacher'));
-      var group = cellText(get(row, 'group')) || dGroup;
+      var group = cellText(get(row, 'group')) || dGroup, groupGuess = false;
+      if (!group && xiGroup) { group = xiGroup; groupGuess = true; }
       var dateRaw = get(row, 'date'), num = cellText(get(row, 'num'));
       if (!discipline && !cellText(dateRaw) && !teacherCell) continue;
       if (last && !cellText(dateRaw) && !/^\d/.test(num) && (!cellText(get(row, 'group')) || cellText(get(row, 'group')) === last.group)) {
@@ -441,7 +446,9 @@
       }
       if (!discipline && !cellText(dateRaw)) continue;
       var dt = parseExamDate(dateRaw), type = normType(get(row, 'type'));
+      var typeGuess = false;
       if (type === '') type = /(^|[^а-яё])диф/i.test(discipline) ? 'Диф. зачёт' : dKind;
+      if (!type && type !== null && discipline && dt && !dt.error) { type = 'Экзамен'; typeGuess = true; }
       var why = !group ? 'не указана группа' : !discipline ? 'нет дисциплины' : !dt ? 'нет даты' : dt.error ? 'не читается дата «' + cellText(dateRaw) + '»' : !type ? 'не понятно, экзамен это или зачёт' : '';
       if (why) { out.skipped++; out.bad.push({ text: [group, discipline, cellText(dateRaw)].filter(Boolean).join(' · '), why: why }); last = null; continue; }
       var time = dt.time || (map.time != null ? parseTimeText(get(row, 'time')) : '');
@@ -456,7 +463,7 @@
       seen[key] = true;
       last = {
         group: group, discipline: discipline, date: dt.date, time: time, room: cellText(get(row, 'room')),
-        teacher: teacherCell, type: type, retakeDate: retakeDate, retakeTime: retakeTime
+        teacher: teacherCell, type: type, retakeDate: retakeDate, retakeTime: retakeTime, typeGuess: typeGuess, groupGuess: groupGuess
       };
       out.records.push(last);
     }
@@ -3083,7 +3090,7 @@
     return out;
   }
   function examsFromTables(tables) {
-    var records = [], skipped = 0, bad = [], group = '', map = null, cols = 0;
+    var records = [], skipped = 0, bad = [], group = '', map = null, cols = 0, header = false;
     tables.forEach(function (t) {
       // in a document a table without its own group line goes on with the group above it (a table
       // broken over a page); every sheet of a workbook stands on its own
@@ -3091,9 +3098,9 @@
       group = t.kind == null ? own : own || group;
       var width = Math.max.apply(null, [0].concat(t.rows.map(function (r) { return r.length; })));
       var res = parseExamSheet(t.rows, { group: group, kind: t.kind || '', map: t.kind != null && width === cols ? map : null });
-      if (res) { records = records.concat(res.records); skipped += res.skipped; bad = bad.concat(res.bad); map = res.map; cols = width; }
+      if (res) { records = records.concat(res.records); skipped += res.skipped; bad = bad.concat(res.bad); map = res.map; cols = width; header = header || res.header; }
     });
-    return { records: records, skipped: skipped, bad: bad };
+    return { records: records, skipped: skipped, bad: bad, header: header };
   }
   function readExamFile(file) { return readDocTables(file).then(examsFromTables); }
 
@@ -3160,6 +3167,8 @@
         if (old.type !== r.type) changes.push('было: ' + old.type.toLowerCase());
         if ((old.retakeDate || '') !== (r.retakeDate || '') || (old.retakeTime || '') !== (r.retakeTime || '')) changes.push('пересдача была ' + (old.retakeDate ? fmtShort(old.retakeDate) + (old.retakeTime ? ' ' + old.retakeTime : '') : '—'));
       }
+      if (r.groupGuess) note('info', 'Группа в таблице не указана — взята выбранная на странице: ' + r.group + '.');
+      if (r.typeGuess) note('info', 'Тип аттестации не указан — записано как экзамен.');
       // the group, the teacher
       if (DB.groups.length && DB.groups.indexOf(r.group) < 0) note('warn', 'Группы «' + r.rawGroup + '» нет в списке групп.');
       else if (bare(r.rawGroup) !== bare(r.group)) note('info', 'Группа «' + r.rawGroup + '» записана как ' + r.group + '.');
@@ -3220,7 +3229,9 @@
     var removed = current.filter(function (c, ci) { return used.indexOf(ci) < 0; });
     return { items: items, removed: removed, groups: Object.keys(win).sort(cmpRu), win: win };
   }
+  var xiGroup = '';
   function openExamImport() {
+    xiGroup = ex.group.length === 1 ? ex.group[0] : state.view === 'exams' && state.exPage === 'book' && state.bookGroup ? state.bookGroup : '';
     xi = { records: [], skipped: 0, bad: [], source: '', review: null };
     $('xi-file').value = '';
     $('xi-url').value = '';
@@ -3235,6 +3246,12 @@
   var XI_STATUS = { 'new': ['Новая запись', 'b-add'], changed: ['Изменится', 'b-replace'], same: ['Без изменений', 's-past'] };
   function showExamPreview(res, source) {
     xi = { records: res.records, skipped: res.skipped, bad: res.bad || [], source: source, review: null };
+    if (!res.records.length && res.header && !xi.bad.length) {
+      $('xi-save').disabled = true;
+      $('xi-status').textContent = 'Таблица прочитана, но в ней нет заполненных строк. Заполните хотя бы одну строку: дисциплина и дата (группа, преподаватель, аудитория и тип — по желанию), сохраните файл и загрузите его снова. Пример строки — на листе «Как заполнять» в Excel-шаблоне, готовые примеры — по ссылкам «Примеры» выше.';
+      $('xi-preview').innerHTML = '';
+      return;
+    }
     if (!res.records.length) {
       $('xi-save').disabled = true;
       $('xi-status').textContent = 'В документе не нашлось таблицы с экзаменами. Нужны колонки «Дисциплина» и «Дата»; группа — колонкой или строкой над таблицей («группы № ИС2-25»); экзамен это или зачёт — колонкой «Тип аттестации» или заголовком документа («…экзаменационной сессии», «…зачётной недели»).' +
@@ -3610,6 +3627,13 @@
   function takePracticeTables(tables, source) {
     var periods = piPeriods(tables), pairs = periods.length ? [] : piPairs(tables, source);
     pi = { kind: periods.length ? 'periods' : pairs.length ? 'pairs' : '', items: [], source: source, periods: periods, pairs: pairs };
+    var emptyTpl = !pi.kind && tables.some(function (t) { return (t.rows[0] || []).some(function (c) { return /^групп/i.test(cellText(c)); }) && t.rows.slice(1).every(function (r) { return !(r || []).some(function (c) { return cellText(c); }); }); });
+    if (emptyTpl) {
+      $('pi-status').textContent = 'Таблица прочитана, но в ней нет заполненных строк. Заполните хотя бы одну строку (пример — на листе «Как заполнять» в шаблоне), сохраните файл и загрузите его снова.';
+      $('pi-preview').innerHTML = '';
+      $('pi-save').disabled = true;
+      return;
+    }
     if (!pi.kind) {
       $('pi-status').textContent = 'В файле не нашлось ни сроков практики, ни расписания практики по парам. Сроки: колонка «Группа» и колонки «Учебная практика (УП)», «Производственная практика (ПП)» с датами начала и окончания (или «с … по …»), либо колонки «Группа», «Вид», «Начало», «Окончание». Расписание по парам: колонки «Дата», «Пара», «Наименование» (и «Руководитель»), группа — колонкой или в заголовке.';
       $('pi-preview').innerHTML = '';
@@ -4628,6 +4652,8 @@
     readExamFile(f).then(function (res) { showExamPreview(res, f.name); }, function (err) { $('xi-status').textContent = 'Не удалось прочитать файл: ' + err.message + '.'; });
   }
   $('xi-file').addEventListener('change', function (e) { takeExamFile(e.target.files && e.target.files[0]); });
+  // the page's group fills empty group cells only for the file being loaded in the dialog
+  $('xi-dialog').addEventListener('close', function () { xiGroup = ''; });
   document.addEventListener('click', function (e) { if (e.target.closest('[data-pi-open]')) openPracticeImport(); });
   $('pi-file').addEventListener('change', function (e) { takePracticeFile(e.target.files && e.target.files[0]); });
   $('pi-read').addEventListener('click', function () {
