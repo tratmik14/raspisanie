@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
-  <link rel="stylesheet" href="styles.css?v=3.8">
+  <link rel="stylesheet" href="styles.css?v=4.1">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -119,12 +119,13 @@
         <p>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить, перенести её или поставить ещё одну пару в это же время. На свободное время пару ставит кнопка «Добавить пару».</p>
         <p class="demo-note" id="demo-note" hidden>Демо-режим: правки сохраняются только в этом браузере, другие посетители их не видят. Чтобы правки видели все, подключите сервер админки (README, раздел «Как подключить»).</p>
         <button type="button" class="btn btn-small" id="bulk-open">Массовая замена</button>
+        <button type="button" class="btn btn-small" data-pi-open>Загрузить практику</button>
       </div>
       <section class="ribbon" id="ribbon" hidden aria-label="Учебный год группы по неделям"></section>
       <section class="tdiff" id="tdiff" hidden aria-label="Что изменилось в таблице"></section>
       <section class="reminder" id="reminder" hidden aria-label="Ближайшая аттестация"></section>
       <section class="now" id="now" hidden aria-label="Сегодня"></section>
-      <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра. Практика и праздники в нём не учтены.</span></p>
+      <p class="note" id="tpl-note" hidden><span class="pill">Шаблон</span><span>Для этой группы в таблице есть только недельный шаблон без дат, поэтому он показан на каждой неделе семестра, кроме дней практики, сессии, каникул (по графику учебного процесса) и праздников.</span></p>
 
       <section class="picker" id="picker" hidden aria-labelledby="h-picker">
         <h2 id="h-picker">Выберите группу</h2>
@@ -163,6 +164,10 @@
               <button type="button" role="radio" data-value="3">3</button>
               <button type="button" role="radio" data-value="4">4</button>
             </div>
+          </div>
+          <div class="field admin-only" id="g-pi-field" hidden>
+            <span class="label">Администратору</span>
+            <div class="bal-tools"><button type="button" class="btn" data-pi-open>Загрузить практику</button><button type="button" class="btn btn-quiet" data-pi-reset>Сбросить загруженную практику</button></div>
           </div>
         </div>
       </section>
@@ -260,6 +265,7 @@
               Колонки
             </button>
             <button type="button" class="btn btn-small" id="e-import" hidden>Загрузить таблицу экзаменов</button>
+            <button type="button" class="btn btn-small btn-quiet" id="e-xreset" hidden>Сбросить загруженные</button>
             <button type="button" class="btn btn-small" id="e-template">Шаблон</button>
             <button type="button" class="btn btn-small" id="e-export">Экспорт в Excel</button>
           </div>
@@ -492,12 +498,12 @@
   <dialog class="dlg dlg-wide" id="xi-dialog" aria-labelledby="xi-title">
     <form method="dialog" novalidate>
       <h2 id="xi-title">Таблица экзаменов</h2>
-      <p class="hint">Перетащите сюда файл или выберите его: Excel (.xlsx, .xls, .csv), Word (.docx) или Google-документ по ссылке. Подойдут и графики колледжа «Графики экзаменов…» и «График зачётной недели…»: группа берётся из строки «группы № …» над таблицей, экзамен или зачёт — из заголовка. Старый формат Word (.doc) сначала сохраните как .docx.</p>
+      <p class="hint">Перетащите сюда файл или выберите его: Excel (.xlsx, .xls, .csv), Word (.docx), или вставьте ссылку на Google-таблицу, Google-документ или файл на Google Диске (доступ «Все, у кого есть ссылка»). Подойдут и графики колледжа «Графики экзаменов…» и «График зачётной недели…»: группа берётся из строки «группы № …» над таблицей, экзамен или зачёт — из заголовка. Старый формат Word (.doc) сначала сохраните как .docx.</p>
       <p class="hint">Сайт сверит каждую строку со списком групп, учебным планом, графиком учебного процесса, преподавателями и расписанием пар, покажет, что изменится, и только потом сохранит. Меняются экзамены только тех групп, что есть в таблице.</p>
       <label class="xi-drop" id="xi-drop" for="xi-file"><span class="xi-drop-title">Перетащите файл сюда</span><span class="hint">или нажмите, чтобы выбрать</span>
         <input type="file" id="xi-file" name="exam_file" accept=".xlsx,.xls,.csv,.docx,.doc,.html,.htm"></label>
       <div class="xi-url">
-        <div class="field"><label for="xi-url">Или ссылка на Google-документ</label><input type="url" id="xi-url" name="exam_doc_url" autocomplete="off" placeholder="https://docs.google.com/document/d/…"></div>
+        <div class="field"><label for="xi-url">Или ссылка на Google-таблицу, Google-документ или файл на Google Диске</label><input type="url" id="xi-url" name="exam_doc_url" autocomplete="off" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
         <button type="button" class="btn" id="xi-read">Прочитать документ</button>
       </div>
       <p class="xi-status" id="xi-status" aria-live="polite"></p>
@@ -505,6 +511,29 @@
       <div class="dlg-actions">
         <button type="button" class="btn btn-quiet" id="xi-cancel">Закрыть</button>
         <button type="button" class="btn btn-primary" id="xi-save" disabled>Применить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="dlg dlg-wide" id="pi-dialog" aria-labelledby="pi-title">
+    <form method="dialog" novalidate>
+      <h2 id="pi-title">Практика из таблицы или документа</h2>
+      <p class="hint">Подойдут Excel (.xlsx, .xls, .csv), Word (.docx) или ссылка на Google-таблицу, Google-документ или файл на Google Диске (доступ «Все, у кого есть ссылка»). Сайт понимает два вида файлов:</p>
+      <ul class="hint pi-kinds">
+        <li><strong>Сроки практики</strong>, как в «Учебном графике 26-27»: группа и даты начала и окончания УП, ПП, ПДП, экзаменов, каникул. Сайт поменяет эти недели в графике учебного процесса и уберёт обычные пары группы в дни практики.</li>
+        <li><strong>Расписание практики по парам</strong>: дата, пара, наименование (тема или вид работ), руководитель; группа — колонкой, в заголовке или в имени файла («ИС24_…_РАСП_уп.08»). В эти дни пары группы заменятся парами практики.</li>
+      </ul>
+      <label class="xi-drop" id="pi-drop" for="pi-file"><span class="xi-drop-title">Перетащите файл сюда</span><span class="hint">или нажмите, чтобы выбрать</span>
+        <input type="file" id="pi-file" name="practice_file" accept=".xlsx,.xls,.csv,.docx,.doc,.html,.htm"></label>
+      <div class="xi-url">
+        <div class="field"><label for="pi-url">Или ссылка на Google-таблицу, Google-документ или файл на Google Диске</label><input type="url" id="pi-url" name="practice_doc_url" autocomplete="off" placeholder="https://docs.google.com/spreadsheets/d/…"></div>
+        <button type="button" class="btn" id="pi-read">Прочитать документ</button>
+      </div>
+      <p class="xi-status" id="pi-status" aria-live="polite"></p>
+      <div id="pi-preview"></div>
+      <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet" id="pi-cancel">Закрыть</button>
+        <button type="button" class="btn btn-primary" id="pi-save" disabled>Применить</button>
       </div>
     </form>
   </dialog>
@@ -523,10 +552,10 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=3.8"></script>
-  <script src="hours.js?v=3.8"></script>
-  <script src="gas-sim.js?v=3.8"></script>
-  <script src="api.js?v=3.8"></script>
-  <script src="app.js?v=3.8"></script>
+  <script src="config.js?v=4.1"></script>
+  <script src="hours.js?v=4.1"></script>
+  <script src="gas-sim.js?v=4.1"></script>
+  <script src="api.js?v=4.1"></script>
+  <script src="app.js?v=4.1"></script>
 </body>
 </html>

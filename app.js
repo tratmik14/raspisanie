@@ -15,7 +15,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '3.8';
+  var SITE_VERSION = '4.1';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -482,7 +482,8 @@
   var EXI = { records: [], at: 0, raw: [] };
   var EX = { status: 'loading', records: [], skipped: 0, source: '', at: 0, imported: 0 };
   // guards: sheet name → why its fresh copy was not taken (ТЗ, этап 2: «данные не затираются»)
-  var net = { pending: 0, failed: {}, listLive: false, listFailed: false, bulk: null, guards: {}, refreshing: false };
+  // notes: sheets taken although they shrank a lot; synced: when the open sheets were last re-read
+  var net = { pending: 0, failed: {}, listLive: false, listFailed: false, bulk: null, guards: {}, notes: {}, refreshing: false, synced: Date.now(), syncing: false };
   // admin edits laid over the timetable: status 'loading' | 'ok' | 'cache' | 'error' | 'off'
   var EDITS = { status: Api.mode === 'off' ? 'off' : 'loading', list: [], at: 0 };
   // planned hours from the «0 Учебные графики» sheet: status 'loading' | 'ok' | 'error'
@@ -641,12 +642,25 @@
       .filter(function (k) { return k.charAt(0) !== '|'; }).sort().join('\n');
   }
   function savedWas(e) { try { var w = JSON.parse(e.was || 'null'); return Array.isArray(w) ? w : null; } catch (err) { return null; } }
+  // An edit whose result is already in the table (the head of studies typed the same change into the
+  // sheet) is not laid over it again: an added pair would stand twice and count twice in the hours.
+  // Such edits are listed in «Изменения» → «Уже внесено в таблицу», where they can be removed at once.
+  var IN_TABLE = {};
+  function lessonKey(r) { return [bare(r.disc), bare(r.teacher)].join('|'); }
   function applyEdits(group, rows) {
     var list = EDITS.list.filter(function (e) { return e.group === group; });
     if (!list.length) return rows;
     var out = rows.slice();
     list.slice().sort(function (a, b) { return (a.kind === 'add' ? 1 : 0) - (b.kind === 'add' ? 1 : 0); }).forEach(function (e) {
       var start = normTime(e.start), was = [], sub = +e.sub || 0;
+      var here = out.filter(function (r) { return !r.edit && r.day === e.date && r.start === start && (!sub || !r.sub || r.sub === sub); });
+      if (e.kind === 'add' || e.kind === 'replace') {
+        var want = lessonKey(e);
+        if (here.some(function (r) { return lessonKey(r) === want; }) && (e.kind === 'add' || here.every(function (r) { return lessonKey(r) === want; }))) { IN_TABLE[e.id] = true; return; }
+      } else if (e.kind === 'cancel' && !here.length) {
+        var then = savedWas(e);
+        if (then && then.length) IN_TABLE[e.id] = true;
+      }
       if (e.kind !== 'add') {
         out = out.filter(function (r) {
           var hit = !r.edit && r.day === e.date && r.start === start && (!sub || r.sub === sub);
@@ -700,6 +714,8 @@
     DB.parity = {};
     DB.weeks.forEach(function (w) { DB.parity[w.ms] = w.par; });
 
+    IN_TABLE = {};
+    balMemo = {};
     Object.keys(DB.sheets).forEach(function (g) { buildRows(g); });
 
     var slotMap = {};
@@ -747,8 +763,17 @@
         emit(b.monday, b.cells, false);
       });
     } else {
+      // a weekly pattern without dates runs only on the theory days of the PDF schedule: not in
+      // practice, session or holiday weeks, and not on public holidays
       var cells = [].concat.apply([], scan.blocks.map(function (b) { return b.cells; }));
-      DB.weeks.forEach(function (w) { emit(w.ms, cells, true); });
+      var gf = grafikFor(group);
+      DB.weeks.forEach(function (w) {
+        var wi = gf ? GRAFIK.data.weeks.indexOf(w.iso) : -1, letters = wi >= 0 ? gf.g.days[wi] : '';
+        emit(w.ms, cells.filter(function (cell) {
+          var iso = isoOfUtc(w.ms + cell.wd * DAY), c = letters ? letters.charAt(Math.min(cell.wd, 4)) : '';
+          return !isHoliday(iso) && (!c || c === 'T');
+        }), true);
+      });
     }
     return rows;
   }
@@ -907,10 +932,15 @@
   // the last good copy: the page keeps that copy, and admins see a warning and get it in the import journal.
   var good = {};
   try { good = JSON.parse(localStorage.getItem(GOOD_KEY) || '{}') || {}; } catch (e) { good = {}; }
+  // Only a sheet that parsed into nothing keeps the old copy. A sheet that just got much shorter is
+  // shown as it is now (the head of studies often clears whole weeks), and admins get a note about it:
+  // before, such a sheet was held back and the site went on showing the old timetable.
   function brokenParse(name, size, what) {
-    if (!size) return 'На листе «' + name + '» не нашлось ' + what;
+    return size ? '' : 'На листе «' + name + '» не нашлось ' + what;
+  }
+  function shrinkNote(name, size, what) {
     var before = good[name] || 0;
-    if (before >= 20 && size < before * 0.3) return 'На листе «' + name + '» ' + what.replace(/^ни одно[йг]о? /, '') + ' стало в ' + Math.round(before / size) + ' раз меньше, чем в прошлый раз';
+    if (before >= 20 && size < before * 0.3) return 'На листе «' + name + '» ' + what.replace(/^ни одно[йг]о? /, '') + ' стало в ' + Math.round(before / size) + ' раз меньше, чем в прошлый раз. Показана новая версия: проверьте, что лист заполнен как нужно.';
     return '';
   }
   function scanSize(scan) { return scan.blocks.reduce(function (a, b) { return a + b.cells.length; }, 0); }
@@ -918,6 +948,8 @@
     var why = brokenParse(name, size, what);
     if (why) { net.guards[name] = why + '. Показана прошлая версия: проверьте, не изменился ли формат листа.'; return false; }
     delete net.guards[name];
+    var shrink = shrinkNote(name, size, what);
+    if (shrink) net.notes[name] = shrink; else delete net.notes[name];
     cachePut(name, csv);
     good[name] = size;
     try { localStorage.setItem(GOOD_KEY, JSON.stringify(good)); } catch (e) { /* storage unavailable */ }
@@ -989,12 +1021,17 @@
       render();
       if ($('bulk-dialog').open) { bulkFillTeachers(); bulkPreview(); }
       if ($('xi-dialog').open && xi.review) renderExamReview();
+      if ($('pi-dialog').open && pi.kind) renderPracticeReview();
       // a view that asked for more groups while this round was loading gets them now
       ensureView();
     });
   }
   function ensureView() {
-    if (state.view === 'history') { loadHistory(); loadTableJournal(); }
+    if (state.view === 'history') {
+      loadHistory(); loadTableJournal();
+      // conflicts and edits already in the table are found on the sheets of the groups with edits
+      if (isAdmin()) ensureGroups(uniq(EDITS.list.map(function (e) { return e.group; })));
+    }
     if (state.view === 'balance') { ensureGroups(balanceNeeds()); return; }
     if (state.view !== 'lessons' && state.view !== 'hours') return;
     if (state.mode === 'teacher') ensureAll();
@@ -1023,7 +1060,7 @@
       GRAFIK = { status: 'ok', data: d };
     }, function () {
       GRAFIK = { status: 'error', data: null };
-    }).then(function () { render(); });
+    }).then(function () { recompute(); render(); });
   }
   function loadEdits() {
     if (Api.mode === 'off') return Promise.resolve();
@@ -1624,12 +1661,36 @@
       return Api.importTable({ groups: groups, changes: changes.slice(0, 20000), warnings: warnings }).then(function (r) { r.first = first; return r; });
     });
   }
-  // ТЗ, этап 2: «импорт из таблицы и учебного плана по нажатию кнопки» (без расписания по таймеру)
+  // The open page keeps up with the table by itself: every syncMinutes (config.js) and whenever the
+  // tab comes back to the screen, it re-reads the group list, the plan and every sheet it has loaded.
+  // A sheet that changed is shown at once, with «С вашего прошлого просмотра в таблице изменилось…».
+  function syncMinutes() { var m = CFG.syncMinutes == null ? 5 : +CFG.syncMinutes; return m > 0 ? m : 0; }
+  function syncNow() {
+    if (net.syncing || net.refreshing || net.bulk || !DB.groups.length) return;
+    net.syncing = true;
+    var groups = Object.keys(DB.sheets).filter(function (g) { return DB.groups.indexOf(g) >= 0; });
+    var before = {};
+    groups.forEach(function (g) { var c = cacheGet(g); before[g] = c ? c.csv : ''; });
+    loadLists().then(function () {
+      return runQueue(groups, function (g) { return loadSheet(g); });
+    }).then(function () {
+      net.synced = Date.now();
+      var changed = groups.filter(function (g) { var c = cacheGet(g); return c && before[g] && c.csv !== before[g]; });
+      recompute();
+      fillOptions();
+      render();
+      if ($('xi-dialog').open && xi.review) renderExamReview();
+      if (changed.length) toast('Таблица изменилась, расписание обновлено: ' + changed.slice(0, 6).join(', ') + (changed.length > 6 ? ' и ещё ' + (changed.length - 6) : '') + '.');
+    }, function () { net.synced = Date.now(); }).then(function () { net.syncing = false; });
+  }
+  function syncDue() { var m = syncMinutes(); return m && Date.now() - net.synced >= m * 60000; }
+  // ТЗ, этап 2: «импорт из таблицы и учебного плана по нажатию кнопки»
   function refreshAll() {
     if (net.refreshing) return;
     var admin = isAdmin();
     net.refreshing = { done: 0, total: 0 };
     net.failed = {};
+    net.synced = Date.now();
     render();
     Promise.all([loadLists(), loadGrafik(), loadEdits()]).then(function () {
       var groups = admin ? DB.groups.slice() : Object.keys(DB.sheets);
@@ -1814,14 +1875,69 @@
       return hit || String(u).trim();
     }).filter(Boolean);
   }
-  function isUrgent(g) { return urgentGroups().some(function (u) { return normGroup(u) === normGroup(g); }); }
+  function isManualUrgent(g) { return urgentGroups().some(function (u) { return normGroup(u) === normGroup(g); }); }
+  // Groups catch fire by themselves too: theory ends and practice starts in urgentDays (config.js) or
+  // less, or theory is already over, and pairs are still missing. The dates come from the PDF schedule
+  // with the admins' corrections, so moving a practice on the «График» tab moves the fire too.
+  function urgentDays() { var d = CFG.urgentDays == null ? 14 : +CFG.urgentDays; return d > 0 ? d : 0; }
+  // the next practice of the group in this half: its first day, the last theory day before it and how many
+  // theory days are left until then; with no practice ahead, the end of theory of the half
+  function practiceAhead(group) {
+    var half = currentHalf(group), days = halfDays(group, half), today = todayISO();
+    if (!days.length) return null;
+    var start = '', now = false;
+    for (var w = 0; w + 4 < days.length; w += 5) {
+      var wk = days.slice(w, w + 5), letters = wk.map(function (d) { return d.c; }).join('');
+      if (/T/.test(letters) || !/[UPX]/.test(letters) || wk[4].iso < today) continue;
+      var first = wk.filter(function (d) { return /[UPX]/.test(d.c); })[0];
+      start = first.iso; now = first.iso <= today;
+      break;
+    }
+    var lastT = '';
+    days.forEach(function (d) { if (d.c === 'T' && (!start || d.iso < start)) lastT = d.iso; });
+    var left = days.filter(function (d) { return d.c === 'T' && d.iso > today && d.iso <= lastT && !isHoliday(d.iso); }).length;
+    return { start: start, now: now, lastT: lastT, left: left, days: start ? daysBetween(today, start) : null };
+  }
+  // why a group burns: '' when it does not
+  function fireReason(g) {
+    if (isManualUrgent(g)) return 'manual';
+    var d = urgentDays(), pa = d ? practiceAhead(g) : null;
+    if (!pa) return '';
+    var soon = pa.start && !pa.now && pa.days <= d, over = pa.lastT && pa.lastT < todayISO();
+    if (!soon && !over) return '';
+    var b = balanceFor(g);
+    if (!b || !b.plan || !b.total.add) return b ? '' : 'maybe';
+    return soon ? 'soon' : 'over';
+  }
+  function isUrgent(g) { var r = fireReason(g); return r && r !== 'maybe'; }
+  function fireCandidates() {
+    var d = urgentDays(), today = todayISO();
+    if (!d) return [];
+    return DB.groups.filter(function (g) {
+      var pa = practiceAhead(g);
+      return pa && ((pa.start && !pa.now && pa.days <= d) || (pa.lastT && pa.lastT < today));
+    });
+  }
+  function burningGroups() {
+    var manual = urgentGroups(), auto = fireCandidates().filter(function (g) { return manual.indexOf(g) < 0 && fireReason(g) !== ''; });
+    auto.sort(function (a, b) { var A = practiceAhead(a), B = practiceAhead(b); return (A.start || 'z') < (B.start || 'z') ? -1 : (A.start || 'z') > (B.start || 'z') ? 1 : cmpRu(a, b); });
+    return manual.concat(auto);
+  }
+  function practiceLine(g) {
+    var pa = practiceAhead(g);
+    if (!pa) return '';
+    if (pa.start && pa.now) return 'идёт практика с ' + fmtDayMonth(pa.start);
+    if (pa.start) return 'практика с ' + fmtDayMonth(pa.start) + (pa.left ? ', до неё ' + count(pa.left, 'учебный день', 'учебных дня', 'учебных дней') : ', учебных дней до неё нет');
+    if (pa.lastT && pa.lastT < todayISO()) return 'теория закончилась ' + fmtDayMonth(pa.lastT);
+    return pa.lastT ? 'теория до ' + fmtDayMonth(pa.lastT) + ', ' + count(pa.left, 'учебный день', 'учебных дня', 'учебных дней') : '';
+  }
   function balanceGroup() {
     if (state.group && (!DB.groups.length || DB.groups.indexOf(state.group) >= 0)) return state.group;
     return urgentGroups()[0] || '';
   }
   function balanceNeeds() {
     if (state.balAll || bal.wantAll) return DB.groups.slice();
-    var list = urgentGroups().slice(), g = balanceGroup();
+    var list = urgentGroups().concat(fireCandidates()), g = balanceGroup();
     if (g && list.indexOf(g) < 0) list.push(g);
     return list;
   }
@@ -1843,9 +1959,17 @@
     var list = CFG.holidays || HOLIDAYS_DEFAULT;
     return list.indexOf(iso) >= 0 || list.indexOf(iso.slice(5)) >= 0;
   }
+  var balMemo = {};
   function balanceFor(group) {
     var sheet = DB.sheets[group];
     if (!sheet) return null;
+    var mk = group + '|' + (bal.until[group] || '') + '|' + sheet.at + '|' + EDITS.at + '|' + todayISO();
+    if (balMemo[group] && balMemo[group].key === mk) return balMemo[group].value;
+    var value = balanceCompute(group, sheet);
+    balMemo[group] = { key: mk, value: value };
+    return value;
+  }
+  function balanceCompute(group, sheet) {
     var half = currentHalf(group), h2 = half2Of(group), per = CFG.hoursPerPair || 2, today = todayISO();
     var days = halfDays(group, half);
     var dl = days.length ? Hours.balanceDeadline(days) : { theoryEnd: '', until: '' };
@@ -1892,12 +2016,19 @@
   function pairsAcc(n) { return count(n, 'пару', 'пары', 'пар'); }
   // «12 пар стоят», «1 пара стоит»
   function pairsStand(n) { return pairsWord(n) + (plural(n, 'x', 'y', 'z') === 'x' ? ' стоит' : ' стоят'); }
+  function fireTag(g) {
+    var r = fireReason(g);
+    if (r === 'manual') return '<span class="bal-tag">горит</span>';
+    if (r === 'soon') return '<span class="bal-tag" title="До практики осталось мало времени, а пары ещё не вычитаны">горит: практика скоро</span>';
+    if (r === 'over') return '<span class="bal-tag" title="Теория закончилась, а пары не вычитаны">горит: теория прошла</span>';
+    return '';
+  }
   function balCardHTML(g, cur) {
     var b = balanceFor(g), on = g === cur ? ' is-on' : '';
-    var inner;
+    var inner, pl = practiceLine(g);
     if (!b) {
       inner = '<span class="bal-card-big">' + (net.failed[g] ? 'не загрузилась' : 'загружаю…') + '</span>';
-      return '<button type="button" class="bal-card' + on + '" data-bal-group="' + esc(g) + '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span><span class="bal-tag">горит</span></span>' + inner + '</button>';
+      return '<button type="button" class="bal-card' + on + '" data-bal-group="' + esc(g) + '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span>' + fireTag(g) + '</span>' + inner + '</button>';
     }
     var t = b.total, tone = balTone(b);
     var big = !b.plan ? '—' : t.add ? '+' + t.add : t.cut ? '−' + t.cut : '0';
@@ -1906,9 +2037,10 @@
     if (t.add && t.cut) sub.push('и снять ' + pairsAcc(t.cut));
     if (b.until) sub.push(b.passed ? 'срок вычитки прошёл ' + fmtDayMonth(b.until) : 'до ' + fmtDayMonth(b.until) + ', ' + count(b.left, 'учебный день', 'учебных дня', 'учебных дней'));
     return '<button type="button" class="bal-card is-' + tone + on + '" data-bal-group="' + esc(g) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
-      '<span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span><span class="bal-tag">горит</span></span>' +
+      '<span class="bal-card-head"><span class="bal-card-name" translate="no">' + esc(g) + '</span>' + fireTag(g) + '</span>' +
       '<span class="bal-card-big"><strong>' + big + '</strong> ' + esc(cap) + '</span>' +
-      (sub.length ? '<span class="bal-card-sub">' + esc(sub.join(' · ')) + '</span>' : '') + '</button>';
+      (sub.length ? '<span class="bal-card-sub">' + esc(sub.join(' · ')) + '</span>' : '') +
+      (pl ? '<span class="bal-card-sub bal-card-practice">' + esc(pl) + '</span>' : '') + '</button>';
   }
   function lineTeacher(l) {
     var t = l.teachers.filter(function (x) { return !/^вак/i.test(x); })[0];
@@ -2028,6 +2160,8 @@
     if (!b.plan) facts.push('Для группы ' + g + ' на листе «' + CFG.planSheet + '» нет учебного плана, сравнивать не с чем.');
     else if (b.plan.group !== g) facts.push('Учебный план взят из блока «' + b.plan.group + '».');
     if (b.theoryEnd) facts.push('Теория по графику учебного процесса — до ' + fmtDayMonth(b.theoryEnd) + '.');
+    var pa = practiceAhead(g);
+    if (pa && pa.start && !pa.now && pa.start <= b.until) facts.push('Практика начинается ' + fmtDayMonth(pa.start) + (pa.left ? ': до неё ' + count(pa.left, 'учебный день', 'учебных дня', 'учебных дней') + '.' : ': учебных дней до неё не осталось.') + (fireReason(g) === 'soon' ? ' Группа горит: пары нужно вычитать до практики.' : ''));
     if (b.covered && b.until && b.covered < b.until) facts.push('Расписание в таблице заполнено только до ' + fmtDayMonth(b.covered) + ': всё, что не стоит в таблице до ' + fmtDayMonth(b.until) + ', посчитано как недостающее.');
     if (b.passed) facts.push('Срок вычитки (' + fmtDayMonth(b.until) + ') уже прошёл: «Добавить» показывает, сколько пар так и не проведено. Чтобы вычитать их в дни практики, нажмите «Перед сессией» или выберите свою дату.');
     if (b.after) facts.push(pairsStand(b.after) + ' в таблице после ' + fmtDayMonth(b.until) + (b.until === b.sessionUntil ? ' — в сессию или каникулы по графику' : ' — в дни практики, сессии или каникул по графику') + ', они не засчитаны.' +
@@ -2075,10 +2209,11 @@
       '<th scope="col">Вычитать до</th><th scope="col">Таблица заполнена до</th><th scope="col"><span class="sr-only">Действие</span></th></tr></thead><tbody>' + body.join('') + '</tbody></table></div></section>';
   }
   function renderBalance() {
+    balMemo = {};
     var box = $('balance-body');
     if (!DB.groups.length) { box.innerHTML = '<section class="empty"><p>' + (net.listFailed ? 'Не удалось загрузить список групп.' : 'Загружаю список групп…') + '</p></section>'; return; }
     if (PLAN.status === 'loading') { box.innerHTML = '<section class="empty"><p>Загружаю учебный план…</p></section>'; return; }
-    var urgent = urgentGroups(), cur = state.balAll ? '' : balanceGroup();
+    var urgent = burningGroups(), cur = state.balAll ? '' : balanceGroup();
     var opts = '<option value="">Выберите группу</option>' + DB.groups.map(function (g) { return '<option value="' + esc(g) + '"' + (g === cur ? ' selected' : '') + '>' + esc(g) + (isUrgent(g) ? ' — горит' : '') + '</option>'; }).join('');
     var html = '<section class="filters bal-filters" aria-label="Группа">' +
       '<div class="field"><label for="bal-group">Группа</label><select id="bal-group">' + opts + '</select></div>' +
@@ -2086,7 +2221,8 @@
     if (urgent.length) {
       html += '<section class="bal-urgent" aria-labelledby="bal-urgent-h"><h2 id="bal-urgent-h">Горящие группы: срочная вычитка часов</h2><div class="bal-cards">' +
         urgent.map(function (g) { return balCardHTML(g, cur); }).join('') + '</div>' +
-        '<p class="hint">Число на карточке — сколько пар добавить (+) или снять (−), чтобы к сроку вычитать часы ровно по учебному плану. Срок по умолчанию — последний день теории по графику учебного процесса, его можно поменять в группе. Список горящих групп задаётся в config.js, поле urgentGroups.</p></section>';
+        '<p class="hint">Число на карточке — сколько пар добавить (+) или снять (−), чтобы к сроку вычитать часы ровно по учебному плану. Срок по умолчанию — последний день теории по графику учебного процесса, его можно поменять в группе. ' +
+        'Группа загорается сама, если до её практики осталось ' + count(urgentDays(), 'день', 'дня', 'дней') + ' или меньше (или теория уже закончилась), а пары ещё не вычитаны. Постоянный список горящих групп — в config.js, поле urgentGroups.</p></section>';
     }
     html += state.balAll ? balOverviewHTML() : cur ? balDetailHTML(cur) : '<section class="empty"><p>Выберите группу.</p></section>';
     box.innerHTML = html;
@@ -2456,7 +2592,20 @@
             '<div class="change-what"><p><span class="grp" translate="no">' + esc(r.group) + '</span> Правка: ' + esc(r.edit.kind === 'cancel' ? 'пара отменена' : wasText([r])) + '</p>' +
             '<p class="was">Когда вносили правку, в таблице было: ' + esc(wasText(r.conflict.then) || 'пары не было') + '. Сейчас: ' + esc(wasText(r.conflict.now) || 'пары нет') + '.</p></div>' +
             '<div class="change-act"><button type="button" class="btn btn-small" data-keep-edit="' + esc(r.edit.id) + '">Оставить правку</button><button type="button" class="btn btn-quiet btn-small" data-drop-edit="' + esc(r.edit.id) + '">Убрать правку</button></div></li>';
-        }).join('') + '</ol><p class="pad hint">Здесь группы, чьё расписание открыто на этом компьютере. Чтобы проверить все, нажмите «Обновить и импортировать».</p></section>';
+        }).join('') + '</ol><div class="pad bal-tools"><button type="button" class="btn btn-small" data-drop-many="conflict">Взять из таблицы во всех (' + conflicts.length + ')</button>' +
+        '<span class="hint">Здесь группы, чьё расписание открыто на этом компьютере. Чтобы проверить все, нажмите «Обновить и импортировать».</span></div></section>';
+    }
+    // edits that the table already repeats: the site does not lay them over it, they only clutter the list
+    var inTable = admin ? EDITS.list.filter(function (x) { return IN_TABLE[x.id] && (!want || x.group === want); }) : [];
+    if (inTable.length) {
+      html += '<section class="tablebox"><div class="table-head"><h2>Уже внесено в таблицу</h2><span class="count">' + count(inTable.length, 'правка', 'правки', 'правок') + '</span>' +
+        '<button type="button" class="btn btn-small" data-drop-many="intable">Убрать все</button></div>' +
+        '<p class="pad hint">В таблице колледжа теперь стоит то же, что в этих правках, поэтому сайт показывает пары прямо из таблицы и не считает их дважды. Сами правки можно убрать.</p>' +
+        '<ol class="changes">' + inTable.map(function (x) {
+          return '<li class="change"><div class="change-when"><strong>' + esc(cap(WEEKDAYS[isoToDate(x.date).getDay()])) + ', ' + esc(fmtDayMonth(x.date)) + '</strong><span>' + esc(slotLabel(normTime(x.start))) + '</span></div>' +
+            '<div class="change-what"><p><span class="grp" translate="no">' + esc(x.group) + '</span> ' + esc(x.kind === 'cancel' ? 'пара отменена' : wasText([x])) + '</p></div>' +
+            '<div class="change-act"><button type="button" class="btn btn-quiet btn-small" data-drop-edit="' + esc(x.id) + '">Убрать правку</button></div></li>';
+        }).join('') + '</ol></section>';
     }
     html += '<section class="tablebox"><div class="table-head"><h2>Ближайшие замены и отмены</h2><span class="count">' + count(upcoming.length, 'правка', 'правки', 'правок') + '</span></div>' +
       (upcoming.length ? '<ol class="changes">' + upcoming.map(editCard).join('') + '</ol>' : '<p class="pad">На ближайшие дни изменений нет: пары идут по основному расписанию.</p>') + '</section>';
@@ -2739,6 +2888,7 @@
     $('ex-book').hidden = state.exPage !== 'book';
     $('ex-teacher').hidden = state.exPage !== 'teacher';
     $('e-import').hidden = !isAdmin();
+    $('e-xreset').hidden = !isAdmin();
     if (state.exPage === 'book') { renderBook(); return; }
     if (state.exPage === 'teacher') { renderTeacherExams(); return; }
     Object.keys(MS).forEach(msSync);
@@ -2945,27 +3095,7 @@
     });
     return { records: records, skipped: skipped, bad: bad };
   }
-  function readExamFile(file) {
-    var name = file.name || '', ext = name.toLowerCase().split('.').pop();
-    if (ext === 'doc' || ext === 'rtf' || ext === 'odt') {
-      return Promise.reject(new Error('файлы .' + ext + ' браузер не читает. Откройте документ в Word и сохраните как .docx (Файл → Сохранить как → Документ Word), потом загрузите его'));
-    }
-    return file.arrayBuffer().then(function (buf) {
-      if (ext === 'docx') {
-        return loadMammoth().then(function (m) { return m.convertToHtml({ arrayBuffer: buf }); }).then(function (r) { return examsFromTables(tablesFromHtml(r.value)); });
-      }
-      if (ext === 'html' || ext === 'htm') return examsFromTables(tablesFromHtml(new TextDecoder().decode(buf)));
-      // SheetJS reads a CSV as single-byte text, so Cyrillic in UTF-8 goes through the page's own parser
-      if (ext === 'csv') return examsFromTables([{ rows: parseCSV(new TextDecoder().decode(buf).replace(/^﻿/, '')), context: name, kind: null }]);
-      return loadXlsx().then(function (X) {
-        var wb = X.read(buf, { type: 'array', cellDates: false });
-        return examsFromTables(wb.SheetNames.map(function (sn) {
-          var rows = X.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' }).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
-          return { rows: rows, context: sn, kind: null };
-        }));
-      });
-    });
-  }
+  function readExamFile(file) { return readDocTables(file).then(examsFromTables); }
 
   // ---------- the uploaded table against everything the site knows ----------
   // Every row is checked against the group list, the teachers of the timetable, the study plan
@@ -3202,6 +3332,449 @@
     });
   }
 
+  // ---------- practice from a table or a document ----------
+  // Two kinds of files are understood:
+  // 1) periods: a table with the group and the dates of УП / ПП / ПДП / exams / holidays — the college's
+  //    «Учебный график 26-27» (rows «Дата начала» / «Дата окончания» under each group), or a plain list
+  //    «Группа · Вид · Начало · Окончание», or «с 24 ноября 2026 по 7 декабря 2026» in a cell.
+  //    The weeks of the PDF schedule are changed for those days, and the group's ordinary pairs on them go.
+  // 2) a practice timetable by pairs («Расписание учебной практики»: дата, пара, наименование, руководитель):
+  //    on each of its days the group's pairs are replaced by the pairs of the file.
+  var pi = { kind: '', items: [], source: '', notes: [] };
+  var PI_NAMES = { U: 'учебная практика', P: 'производственная практика', X: 'преддипломная практика', A: 'экзамены', K: 'каникулы' };
+  function piKindOfHeader(h) {
+    h = cellText(h).toLowerCase().replace(/ё/g, 'е');
+    if (!h) return '';
+    if (/преддипл|(^|[^а-я])пдп([^а-я]|$)/.test(h)) return 'X';
+    if (/производств|(^|[^а-я])пп([^а-я.]|$)/.test(h)) return 'P';
+    if (/учебн\S*\s+практ|(^|[^а-я])уп([^а-я.]|$)/.test(h)) return 'U';
+    if (/каникул/.test(h)) return 'K';
+    if (/экзамен|аттестац|сесси/.test(h)) return 'A';
+    return '';
+  }
+  // every date in a text: «24.11.2026», «24 ноября 2026», «24 ноября 2026г.»
+  function datesIn(text) {
+    // a date cell of a workbook may come as its day number (46350 = 24.11.2026)
+    if (/^\s*\d{5}(\.\d+)?\s*$/.test(String(text || ''))) { var sd = parseExamDate(text); return sd && !sd.error && sd.date > '2000' ? [sd.date] : []; }
+    var out = [], re = /(\d{1,2})\.(\d{1,2})\.(\d{2,4})|(\d{1,2})\s+([А-ЯЁа-яё]+)\s+(\d{4})/g, m;
+    while ((m = re.exec(cellText(text)))) {
+      var d = parseExamDate(m[0]);
+      if (d && !d.error) out.push(d.date);
+    }
+    return out;
+  }
+  // a range typed with the year of its start at the end («29.12.2026 – 11.01.2026») runs into the next year
+  function piRange(from, to) {
+    if (!from || !to) return null;
+    if (to < from) { var t2 = (+to.slice(0, 4) + 1) + to.slice(4); if (t2 >= from && daysBetween(from, t2) < 200) to = t2; else return null; }
+    return daysBetween(from, to) > 200 ? null : [from, to];
+  }
+  function piPeriods(tables) {
+    var out = [];
+    tables.forEach(function (t) {
+      var rows = t.rows, hi = -1, gcol = -1, kinds = {}, list = null;
+      for (var i = 0; i < Math.min(rows.length, 15) && hi < 0; i++) {
+        var r = rows[i] || [], g = -1, ks = {}, lv = {};
+        r.forEach(function (c, j) {
+          var h = cellText(c).toLowerCase().replace(/ё/g, 'е');
+          if (/^групп/.test(h) && g < 0) g = j;
+          else if (/^(вид|тип)/.test(h)) lv.kind = j;
+          else if (/начал|^с$|^дата с/.test(h)) lv.from = j;
+          else if (/оконч|конец|^по$|^дата по/.test(h)) lv.to = j;
+          else if (/период|сроки|даты/.test(h)) lv.span = j;
+          else { var k = piKindOfHeader(h); if (k) ks[j] = k; }
+        });
+        if (g < 0) continue;
+        if (lv.kind != null && (lv.from != null || lv.span != null)) { hi = i; gcol = g; list = lv; }
+        else if (Object.keys(ks).length) { hi = i; gcol = g; kinds = ks; }
+      }
+      if (hi < 0) return;
+      var pending = {};
+      for (var r2 = hi + 1; r2 < rows.length; r2++) {
+        var row = rows[r2] || [], gname = cellText(row[gcol]);
+        if (!gname || !groupFromText(gname.replace(/\s+/g, '')) && !/^[А-ЯЁ][А-ЯЁа-яё]*\d?-?\d{2}/.test(gname)) continue;
+        var group = canonGroup(gname);
+        if (list) {
+          var kind = piKindOfHeader(row[list.kind]) || piKindOfHeader('(' + cellText(row[list.kind]) + ')');
+          var ds = list.span != null ? datesIn(row[list.span]) : datesIn(row[list.from]).concat(list.to != null ? datesIn(row[list.to]) : []);
+          var rg = kind && piRange(ds[0], ds[1] || ds[0]);
+          if (rg) out.push({ group: group, raw: gname, kind: kind, label: cellText(row[list.kind]), from: rg[0], to: rg[1] });
+          continue;
+        }
+        var label = row.filter(function (c, j) { return j !== gcol && !kinds[j]; }).join(' ').toLowerCase();
+        var isStart = /начал/.test(label), isEnd = /оконч|конц/.test(label);
+        Object.keys(kinds).forEach(function (j) {
+          var ds2 = datesIn(row[j]), key = group + '|' + j;
+          if (isStart) { if (ds2[0]) pending[key] = ds2[0]; return; }
+          var from = isEnd ? pending[key] : ds2[0], to = isEnd ? ds2[0] : ds2[1] || ds2[0];
+          var rg2 = piRange(from, to);
+          if (rg2) out.push({ group: group, raw: gname, kind: kinds[j], label: cellText(rows[hi][j]), from: rg2[0], to: rg2[1] });
+        });
+      }
+    });
+    // the same period written twice (in two semester blocks or on two sheets) is one
+    var seen = {};
+    return out.filter(function (p) { var k = [p.group, p.kind, p.from, p.to].join('|'); if (seen[k]) return false; seen[k] = true; return true; });
+  }
+  // «2 пара», «2», «II», «10:10-11:40», «10:10» → the start of the pair
+  function piSlot(v) {
+    var s = cellText(v), m = /(\d{1,2})[:.](\d{2})/.exec(s);
+    var slots = (CFG.slots || []).map(function (x) { return normTime(x[0]); });
+    if (m) { var t = normTime(m[1] + ':' + m[2]); return slots.indexOf(t) >= 0 ? t : slots.filter(function (x) { return Math.abs(minutesOf(x) - minutesOf(t)) <= 20; })[0] || t; }
+    var roman = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6 };
+    m = /^(\d)\b|^(I{1,3}|IV|V|VI)\b/.exec(s.toUpperCase());
+    var n = m ? (m[1] ? +m[1] : roman[m[2]]) : 0;
+    return n && slots[n - 1] ? slots[n - 1] : '';
+  }
+  function piPairs(tables, fileName) {
+    var out = [];
+    tables.forEach(function (t) {
+      var rows = t.rows, map = null, hi = -1;
+      for (var i = 0; i < Math.min(rows.length, 15) && !map; i++) {
+        var mp = {};
+        (rows[i] || []).forEach(function (c, j) {
+          var h = cellText(c).toLowerCase().replace(/ё/g, 'е');
+          if (!h) return;
+          if (/^групп/.test(h)) { if (mp.group == null) mp.group = j; }
+          else if (/дата|день/.test(h)) { if (mp.date == null) mp.date = j; }
+          else if (/пара|время|урок/.test(h)) { if (mp.slot == null) mp.slot = j; }
+          else if (/руковод|препод|мастер|ответств/.test(h)) { if (mp.teacher == null) mp.teacher = j; }
+          else if (/ауд|кабин|место/.test(h)) { if (mp.room == null) mp.room = j; }
+          else if (/наименован|тема|вид|содерж|дисципл|модул|работ/.test(h)) { if (mp.name == null) mp.name = j; }
+        });
+        if (mp.date != null && mp.slot != null && mp.name != null) { map = mp; hi = i; }
+      }
+      if (!map) return;
+      var ctx = t.context + ' ' + fileName + ' ' + rows.slice(0, hi).map(function (r) { return (r || []).join(' '); }).join(' ');
+      var dGroup = groupFromText(ctx) || groupFromText(ctx.replace(/([А-ЯЁ][А-ЯЁа-яё]*\d?)(\d{2})(?=[^\d]|$)/g, '$1-$2'));
+      var low = ctx.toLowerCase(), kind = /производствен/.test(low) ? 'P' : /преддипл/.test(low) ? 'X' : 'U';
+      var lastDate = '';
+      for (var r = hi + 1; r < rows.length; r++) {
+        var row = rows[r] || [], ds = datesIn(row[map.date]);
+        if (ds[0]) lastDate = ds[0];
+        var name = cellText(row[map.name]), start = piSlot(row[map.slot]);
+        if (!name || !start || !lastDate) continue;
+        var group = canonGroup(cellText(row[map.group]) || dGroup);
+        if (!group) continue;
+        out.push({ group: group, date: lastDate, start: start, name: name, teacher: canonTeacher(row[map.teacher]), room: cellText(row[map.room]), kind: kind });
+      }
+    });
+    return out;
+  }
+  function tablesFromWorkbook(X, buf) {
+    var wb = X.read(buf, { type: 'array' });
+    return wb.SheetNames.map(function (sn) {
+      var rows = X.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' }).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
+      return { rows: rows, context: sn, kind: null };
+    });
+  }
+  // a file's tables by its extension; a file without one is told by its bytes (a .docx and an .xlsx are both zips)
+  function tablesFromBuffer(buf, name) {
+    var ext = String(name || '').toLowerCase().split('.').pop();
+    if (!/^(docx|xlsx|xls|csv|html?|ods)$/.test(ext)) {
+      var head = new TextDecoder('latin1').decode(new Uint8Array(buf.slice(0, Math.min(buf.byteLength, 4000))));
+      var tail = new TextDecoder('latin1').decode(new Uint8Array(buf.slice(Math.max(0, buf.byteLength - 20000))));
+      ext = /^PK/.test(head) ? (/word\//.test(head + tail) ? 'docx' : 'xlsx') : /<html|<table/i.test(head) ? 'html' : /^\s*[^\x00]*[,;]/.test(head) && !/[\x00-\x08]/.test(head) ? 'csv' : 'xls';
+    }
+    if (ext === 'docx') return loadMammoth().then(function (m) { return m.convertToHtml({ arrayBuffer: buf }); }).then(function (r) { return tablesFromHtml(r.value); });
+    if (ext === 'html' || ext === 'htm') return Promise.resolve(tablesFromHtml(new TextDecoder().decode(buf)));
+    if (ext === 'csv') return Promise.resolve([{ rows: parseCSV(new TextDecoder().decode(buf).replace(/^﻿/, '')), context: name, kind: null }]);
+    return loadXlsx().then(function (X) { return tablesFromWorkbook(X, buf); });
+  }
+  function readDocTables(file) {
+    var name = file.name || '', ext = name.toLowerCase().split('.').pop();
+    if (ext === 'doc' || ext === 'rtf' || ext === 'odt') {
+      return Promise.reject(new Error('файлы .' + ext + ' браузер не читает. Откройте документ в Word и сохраните как .docx (Файл → Сохранить как → Документ Word), потом загрузите его'));
+    }
+    return file.arrayBuffer().then(function (buf) { return tablesFromBuffer(buf, name); });
+  }
+  // ---------- a Google link: Google Sheets, Google Docs or a file on Google Drive ----------
+  // The browser asks Google itself first (no server needed, works in the demo too); if Google does not
+  // give the file to the page, the admin server (apps-script/Code.gs) fetches it, when it is connected.
+  function googleLink(u) {
+    var m, s = String(u || '').trim();
+    if ((m = /docs\.google\.com\/spreadsheets\/d\/([\w-]{20,})/.exec(s))) return { kind: 'sheet', id: m[1], gid: (/[#&?]gid=(\d+)/.exec(s) || [])[1] || '' };
+    if ((m = /docs\.google\.com\/document\/d\/([\w-]{20,})/.exec(s))) return { kind: 'doc', id: m[1] };
+    if ((m = /drive\.google\.com\/(?:file\/d\/|open\?(?:[^#]*&)?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})/.exec(s)) || (m = /docs\.google\.com\/(?:presentation|forms)\/d\/([\w-]{20,})/.exec(s))) return { kind: 'file', id: m[1] };
+    return null;
+  }
+  function fetchBuffer(url) {
+    return fetch(url, { cache: 'no-store', redirect: 'follow' }).then(function (r) {
+      var type = r.headers.get('content-type') || '';
+      if (!r.ok || /text\/html/.test(type) && !/export\?format=html/.test(url)) throw new Error('Google ответил ' + r.status);
+      return r.arrayBuffer();
+    });
+  }
+  function readGoogleLink(u) {
+    var g = googleLink(u);
+    if (!g) return Promise.reject(new Error('Это не ссылка на Google-таблицу, Google-документ или файл на Google Диске'));
+    var ask;
+    if (g.kind === 'sheet') {
+      // the whole workbook as .xlsx, else the sheet the link points to through the same channel the timetable uses
+      ask = fetchBuffer('https://docs.google.com/spreadsheets/d/' + g.id + '/export?format=xlsx').then(function (buf) {
+        return tablesFromBuffer(buf, 'table.xlsx').then(function (t) { return { tables: t, name: 'Google-таблица' }; });
+      }).catch(function () {
+        return fetch('https://docs.google.com/spreadsheets/d/' + g.id + '/gviz/tq?tqx=out:csv&headers=0' + (g.gid ? '&gid=' + g.gid : ''), { cache: 'no-store' }).then(function (r) {
+          if (!r.ok || (r.headers.get('content-type') || '').indexOf('csv') < 0) throw new Error('Google ответил ' + r.status);
+          return r.text();
+        }).then(function (csv) { return { tables: [{ rows: parseCSV(csv), context: '', kind: null }], name: 'Google-таблица', oneSheet: true }; });
+      });
+    } else if (g.kind === 'doc') {
+      ask = fetchBuffer('https://docs.google.com/document/d/' + g.id + '/export?format=html').then(function (buf) {
+        return { tables: tablesFromHtml(new TextDecoder().decode(buf)), name: 'Google-документ' };
+      });
+    } else {
+      ask = fetchBuffer('https://drive.google.com/uc?export=download&id=' + g.id).then(function (buf) {
+        return tablesFromBuffer(buf, '').then(function (t) { return { tables: t, name: 'файл с Google Диска' }; });
+      });
+    }
+    return ask.catch(function () {
+      if (Api.mode !== 'live') throw new Error('Google не отдал файл странице, а сервер правок не подключён (демо-режим). Скачайте файл на телефон или компьютер (в Google: Файл → Скачать → .xlsx или .docx) и загрузите его кнопкой «Перетащите файл сюда».');
+      return Api.fetchLink(u).then(function (r) {
+        if (r.html) return { tables: tablesFromHtml(r.html), name: r.name || 'Google-документ' };
+        var bin = atob(r.data || ''), bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return tablesFromBuffer(bytes.buffer, r.name || '').then(function (t) { return { tables: t, name: r.name || 'файл с Google Диска' }; });
+      }, function (err) { throw new Error(err.message + ' Если не выходит, скачайте файл и загрузите его кнопкой «Перетащите файл сюда».'); });
+    });
+  }
+  function grafikLetter(group, iso) { return dayLetter(group, iso); }
+  // the days of a period that the PDF schedule knows, Mon–Fri
+  function piDays(from, to) {
+    var out = [];
+    for (var t = utcOfIso(from); t <= utcOfIso(to); t += DAY) { var wd = new Date(t).getUTCDay(); if (wd > 0 && wd < 6) out.push(isoOfUtc(t)); }
+    return out;
+  }
+  // pairs that give way on a day: on practice days the practice pairs of the timetable stay
+  function piGoneRows(group, iso, letter) {
+    var sh = DB.sheets[group];
+    return ((sh && sh.byDay[iso]) || []).filter(function (r) {
+      return !r.ghost && r.disc && !(r.edit && r.edit.kind === 'add' && /практик/i.test(r.disc)) && !(/[UPX]/.test(letter) && Hours.isPractice(r.disc));
+    });
+  }
+  function piReview() {
+    var today = todayISO(), items = [];
+    if (pi.kind === 'periods') {
+      pi.periods.forEach(function (p, idx) {
+        var notes = [], gf = grafikFor(p.group), changed = 0, was = {};
+        if (DB.groups.length && DB.groups.indexOf(p.group) < 0) notes.push({ level: 'warn', text: 'Группы «' + p.raw + '» нет в списке групп.' });
+        if (!gf) notes.push({ level: 'warn', text: 'Группы нет в графике учебного процесса: недели не изменятся, только пары.' });
+        var days = piDays(p.from, p.to), gone = [];
+        days.forEach(function (d) {
+          var cur = grafikLetter(p.group, d);
+          if (gf && cur !== p.kind) { changed++; if (cur) was[cur] = (was[cur] || 0) + 1; }
+          if (d >= today) piGoneRows(p.group, d, p.kind).forEach(function (r) { gone.push(r); });
+        });
+        if (!DB.sheets[p.group] && DB.groups.indexOf(p.group) >= 0) notes.push({ level: 'info', text: 'Расписание группы ещё не загружено, пары не проверены.' });
+        if (p.to < today) notes.push({ level: 'info', text: 'Период уже прошёл: поменяется только график.' });
+        var prev = pi.items[idx];
+        items.push({ p: p, days: days, changed: changed, was: was, gone: gone, notes: notes,
+          apply: prev ? prev.apply : true, cancel: prev ? prev.cancel : (p.kind !== 'A' && gone.length > 0) });
+      });
+    } else {
+      var byDay = {};
+      pi.pairs.forEach(function (x) { var k = x.group + '|' + x.date; (byDay[k] || (byDay[k] = [])).push(x); });
+      Object.keys(byDay).sort(function (a, b) { var A = a.split('|'), B = b.split('|'); return A[1] < B[1] ? -1 : A[1] > B[1] ? 1 : cmpRu(A[0], B[0]); }).forEach(function (k, idx) {
+        var list = byDay[k], group = list[0].group, date = list[0].date, notes = [];
+        if (DB.groups.length && DB.groups.indexOf(group) < 0) notes.push({ level: 'warn', text: 'Группы «' + group + '» нет в списке групп.' });
+        if (date < today) notes.push({ level: 'info', text: 'Дата уже прошла.' });
+        if (isHoliday(date)) notes.push({ level: 'warn', text: 'Это праздничный день.' });
+        var sh = DB.sheets[group], now = ((sh && sh.byDay[date]) || []).filter(function (r) { return !r.ghost && r.disc; });
+        var starts = list.map(function (x) { return x.start; });
+        var gone = now.filter(function (r) { return starts.indexOf(r.start) < 0; }), replaced = now.filter(function (r) { return starts.indexOf(r.start) >= 0; });
+        list.forEach(function (x) {
+          splitTeachers(x.teacher).forEach(function (t) {
+            Object.keys(DB.sheets).forEach(function (g) {
+              if (g === group) return;
+              (DB.sheets[g].byDay[date] || []).forEach(function (r) { if (!r.ghost && r.start === x.start && splitTeachers(r.teacher).indexOf(t) >= 0) notes.push({ level: 'warn', text: t + ' в это же время (' + slotLabel(x.start) + ') ведёт пару в группе ' + g + '.' }); });
+            });
+          });
+        });
+        var prev = pi.items[idx];
+        items.push({ group: group, date: date, list: list, now: now, gone: gone, replaced: replaced, notes: notes, apply: prev ? prev.apply : true, cancel: prev ? prev.cancel : true, letter: list[0].kind });
+      });
+    }
+    pi.items = items;
+  }
+  function openPracticeImport() {
+    pi = { kind: '', items: [], source: '', periods: [], pairs: [] };
+    $('pi-file').value = '';
+    $('pi-url').value = '';
+    $('pi-status').textContent = '';
+    $('pi-preview').innerHTML = '';
+    $('pi-save').disabled = true;
+    $('pi-save').textContent = 'Применить';
+    $('pi-dialog').showModal();
+    ensureAll();
+  }
+  function takePracticeTables(tables, source) {
+    var periods = piPeriods(tables), pairs = periods.length ? [] : piPairs(tables, source);
+    pi = { kind: periods.length ? 'periods' : pairs.length ? 'pairs' : '', items: [], source: source, periods: periods, pairs: pairs };
+    if (!pi.kind) {
+      $('pi-status').textContent = 'В файле не нашлось ни сроков практики, ни расписания практики по парам. Сроки: колонка «Группа» и колонки «Учебная практика (УП)», «Производственная практика (ПП)» с датами начала и окончания (или «с … по …»), либо колонки «Группа», «Вид», «Начало», «Окончание». Расписание по парам: колонки «Дата», «Пара», «Наименование» (и «Руководитель»), группа — колонкой или в заголовке.';
+      $('pi-preview').innerHTML = '';
+      $('pi-save').disabled = true;
+      return;
+    }
+    renderPracticeReview();
+  }
+  function takePracticeFile(f) {
+    if (!f) return;
+    $('pi-status').textContent = 'Читаю «' + f.name + '»…';
+    $('pi-preview').innerHTML = '';
+    $('pi-save').disabled = true;
+    readDocTables(f).then(function (t) { takePracticeTables(t, f.name); }, function (err) { $('pi-status').textContent = 'Не удалось прочитать файл: ' + err.message + '.'; });
+  }
+  function letterText(c) { return WEEK_TYPES[c] || PI_NAMES[c] || c; }
+  function renderPracticeReview() {
+    piReview();
+    var it = pi.items, loading = net.bulk ? ' Загружаю расписание групп для проверки: ' + net.bulk.done + ' из ' + net.bulk.total + '…' : '';
+    var nDays = 0, nPairs = 0, nGroups = uniq(it.map(function (x) { return x.p ? x.p.group : x.group; })).length;
+    var rows;
+    if (pi.kind === 'periods') {
+      it.forEach(function (x) { if (!x.apply) return; nDays += x.changed; if (x.cancel) nPairs += x.gone.length; });
+      $('pi-status').textContent = 'Найдено сроков: ' + it.length + ' для ' + count(nGroups, 'группы', 'групп', 'групп') + '. В графике изменится ' + count(nDays, 'день', 'дня', 'дней') + ', отменится ' + count(nPairs, 'пара', 'пары', 'пар') + '.' + loading;
+      rows = it.map(function (x, i) {
+        var p = x.p, wasTxt = Object.keys(x.was).map(function (c) { return letterText(c) + ' — ' + x.was[c]; }).join(', ');
+        var notes = x.notes.map(function (n) { return '<li class="xi-' + n.level + '">' + esc(n.text) + '</li>'; }).join('');
+        var gone = x.gone.length ? '<li><label><input type="checkbox" data-pi-cancel="' + i + '"' + (x.cancel ? ' checked' : '') + '> Отменить ' + count(x.gone.length, 'пару', 'пары', 'пар') + ' группы в эти дни</label>' +
+          '<span class="aka">' + esc(uniq(x.gone.map(function (r) { return splitCode(r.disc).name; })).slice(0, 4).join(', ')) + (uniq(x.gone.map(function (r) { return r.disc; })).length > 4 ? '…' : '') + '</span></li>' : '';
+        return '<tr' + (x.apply ? '' : ' class="is-off"') + '><td data-label="Применить"><input type="checkbox" data-pi-apply="' + i + '"' + (x.apply ? ' checked' : '') + ' aria-label="Применить ' + esc(p.group) + '"></td>' +
+          '<td data-label="Группа"><span class="grp" translate="no">' + esc(p.group) + '</span></td>' +
+          '<td class="title" data-label="Что">' + esc(cap(letterText(p.kind))) + (p.label && piKindOfHeader(p.label) !== p.kind ? '' : '') + '</td>' +
+          '<td data-label="Когда">' + esc(fmtShort(p.from)) + ' — ' + esc(fmtShort(p.to)) + '</td>' +
+          '<td data-label="График">' + (x.changed ? '<span class="badge b-replace">' + esc(count(x.changed, 'день', 'дня', 'дней')) + '</span><span class="aka">было: ' + esc(wasTxt || 'нет в графике') + '</span>' : '<span class="badge s-past">уже так</span>') + '</td>' +
+          '<td data-label="Проверка">' + (notes || gone ? '<ul class="xi-notes">' + notes + gone + '</ul>' : '<span class="xi-ok">✓ пар в эти дни нет</span>') + '</td></tr>';
+      });
+      $('pi-preview').innerHTML = '<p class="hint">Недели графика учебного процесса поменяются на эти сроки (это видно в ленте года, во вкладках «График», «Часы» и «Вычитка»). Пары группы в эти дни будут отменены правкой администратора, кроме пар самой практики. Сроки экзаменов по умолчанию пары не отменяют.</p>' +
+        '<div class="table-wrap"><table class="smart xi-table pi-table"><thead><tr><th scope="col"><span class="sr-only">Применить</span></th><th scope="col">Группа</th><th scope="col">Что</th><th scope="col">Когда</th><th scope="col">График</th><th scope="col">Проверка</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    } else {
+      it.forEach(function (x) { if (!x.apply) return; nDays++; nPairs += x.list.length; });
+      $('pi-status').textContent = 'Расписание практики: ' + count(nPairs, 'пара', 'пары', 'пар') + ' на ' + count(it.length, 'день', 'дня', 'дней') + ' для ' + count(nGroups, 'группы', 'групп', 'групп') + '.' + loading;
+      rows = it.map(function (x, i) {
+        var notes = x.notes.map(function (n) { return '<li class="xi-' + n.level + '">' + esc(n.text) + '</li>'; }).join('');
+        var list = x.list.map(function (p) { return '<li>' + esc(slotLabel(p.start)) + ': ' + esc(p.name) + (p.teacher ? ', ' + esc(p.teacher) : '') + '</li>'; }).join('');
+        var gone = x.gone.length ? '<li><label><input type="checkbox" data-pi-cancel="' + i + '"' + (x.cancel ? ' checked' : '') + '> Убрать остальные пары дня: ' + esc(x.gone.map(function (r) { return (DB.slotByStart[r.start] || {}).n + ' пара ' + splitCode(r.disc).name; }).join(', ')) + '</label></li>' : '';
+        var repl = x.replaced.length ? '<li class="xi-info">Заменится: ' + esc(x.replaced.map(function (r) { return (DB.slotByStart[r.start] || {}).n + ' пара ' + splitCode(r.disc).name; }).join(', ')) + '</li>' : '';
+        return '<tr' + (x.apply ? '' : ' class="is-off"') + '><td data-label="Применить"><input type="checkbox" data-pi-apply="' + i + '"' + (x.apply ? ' checked' : '') + ' aria-label="Применить ' + esc(x.group) + ' ' + esc(x.date) + '"></td>' +
+          '<td data-label="Группа"><span class="grp" translate="no">' + esc(x.group) + '</span></td>' +
+          '<td data-label="Дата">' + esc(dayLabel(x.date)) + '</td>' +
+          '<td class="title" data-label="Пары практики"><ul class="xi-notes">' + list + '</ul></td>' +
+          '<td data-label="Проверка">' + (notes || gone || repl ? '<ul class="xi-notes">' + repl + gone + notes + '</ul>' : '<span class="xi-ok">✓ других пар в этот день нет</span>') + '</td></tr>';
+      });
+      $('pi-preview').innerHTML = '<p class="hint">В каждый день из файла пары группы заменятся парами практики, а в графике учебного процесса этот день станет днём практики. Всё сохраняется правками администратора, их можно убрать в разделе «Изменения».</p>' +
+        '<div class="table-wrap"><table class="smart xi-table pi-table"><thead><tr><th scope="col"><span class="sr-only">Применить</span></th><th scope="col">Группа</th><th scope="col">Дата</th><th scope="col">Пары практики</th><th scope="col">Проверка</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    }
+    $('pi-save').disabled = !it.some(function (x) { return x.apply; });
+    $('pi-save').textContent = 'Применить' + (nDays && pi.kind === 'periods' ? ': график — ' + count(nDays, 'день', 'дня', 'дней') : '') + (nPairs ? (pi.kind === 'periods' ? ', отменить ' + count(nPairs, 'пару', 'пары', 'пар') : ': ' + count(nPairs, 'пара', 'пары', 'пар') + ' практики') : '');
+  }
+  // the week strings of the PDF schedule overrides after the given days get their letters
+  function piGrafikItems(dayLetters, note) {
+    var weeks = {};
+    Object.keys(dayLetters).forEach(function (k) {
+      var p = k.split('|'), group = p[0], iso = p[1], gf = grafikFor(group);
+      if (!gf) return;
+      var mon = isoOfUtc(mondayOfUtc(utcOfIso(iso))), wd = isoToDate(iso).getDay();
+      if (GRAFIK.data.weeks.indexOf(mon) < 0 || wd < 1 || wd > 5) return;
+      var wk = gf.key + '|' + mon;
+      if (!weeks[wk]) { var cur = GOV.map[gf.key] && GOV.map[gf.key][mon]; weeks[wk] = { group: gf.key, week: mon, days: (cur && cur.days ? cur.days : '.....').split(''), note: note }; }
+      weeks[wk].days[wd - 1] = dayLetters[k];
+    });
+    return Object.keys(weeks).map(function (k) { var w = weeks[k]; return { group: w.group, week: w.week, days: w.days.join(''), note: w.note }; });
+  }
+  function rowWas(group, day, start) {
+    return JSON.stringify(slotRows(group, day, start).filter(function (x) { return !x.ghost && !x.edit; }).map(function (x) { return { disc: x.disc, teacher: x.teacher, room: x.room, sub: x.sub }; }));
+  }
+  function cancelEditFor(row, note) {
+    return { id: row.edit ? row.edit.id : '', kind: 'cancel', group: row.group, date: row.day, start: row.start, end: row.end, sub: +row.sub || 0, note: note, was: row.edit ? row.edit.was : rowWas(row.group, row.day, row.start) };
+  }
+  function savePracticeImport() {
+    var note = 'практика из «' + (pi.source || 'документа') + '»', letters = {}, edits = [], drop = [], seen = {};
+    function cancel(r, why) {
+      var k = r.group + '|' + r.day + '|' + r.start + '|' + (r.sub || 0);
+      if (seen[k]) return;
+      seen[k] = true;
+      if (r.edit && r.edit.kind === 'add') drop.push(r.edit.id); else edits.push(cancelEditFor(r, why));
+    }
+    pi.items.forEach(function (x) {
+      if (!x.apply) return;
+      if (pi.kind === 'periods') {
+        x.days.forEach(function (d) { if (grafikLetter(x.p.group, d) !== x.p.kind) letters[x.p.group + '|' + d] = x.p.kind; });
+        if (x.cancel) x.gone.forEach(function (r) { cancel(r, note + ': ' + letterText(x.p.kind)); });
+        return;
+      }
+      if (grafikLetter(x.group, x.date) !== x.letter) letters[x.group + '|' + x.date] = x.letter;
+      if (x.cancel) x.gone.forEach(function (r) { cancel(r, note + ': день практики'); });
+      x.list.forEach(function (p) {
+        var here = slotRows(x.group, x.date, p.start).filter(function (r) { return !r.ghost; });
+        var mine = here.filter(function (r) { return r.edit && r.edit.kind !== 'cancel'; })[0];
+        edits.push({ id: mine ? mine.edit.id : '', kind: here.length && !(mine && mine.edit.kind === 'add') ? 'replace' : 'add', group: x.group, date: x.date, start: p.start, end: slotEndOf(p.start), sub: 0,
+          disc: p.name, teacher: p.teacher, room: p.room, note: note, was: mine ? mine.edit.was || '' : rowWas(x.group, x.date, p.start) });
+        seen[x.group + '|' + x.date + '|' + p.start + '|0'] = true;
+      });
+    });
+    var gItems = piGrafikItems(letters, note);
+    var btn = $('pi-save');
+    btn.disabled = true;
+    btn.textContent = 'Сохраняю…';
+    var batch = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), savedWeeks = [];
+    function chunks(list, n) { var out = []; for (var i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
+    chunks(gItems, 150).reduce(function (pr, ch) {
+      return pr.then(function () { return Api.grafikSave(ch, note).then(function (saved) { setGrafik(saved); savedWeeks = savedWeeks.concat(saved); }); });
+    }, Promise.resolve()).then(function () {
+      return chunks(edits, 100).reduce(function (pr, ch) { return pr.then(function () { return Api.save(ch, { batch: batch, comment: note }).then(mergeEdits); }); }, Promise.resolve());
+    }).then(function () {
+      return drop.length ? Api.remove(drop, { comment: note }).then(function (removed) { setEdits(EDITS.list.filter(function (x) { return removed.indexOf(x.id) < 0; }), 'ok'); }) : null;
+    }).then(function () {
+      HIST.status = 'idle';
+      $('pi-dialog').close();
+      recompute();
+      render();
+      toast('Практика внесена: в графике ' + count(savedWeeks.length, 'неделя', 'недели', 'недель') + ', правок пар — ' + (edits.length + drop.length) + '. Всё можно вернуть в разделе «Изменения» и на вкладке «График».');
+    }, function (err) {
+      $('pi-status').textContent = err.message + ' Часть изменений могла сохраниться — проверьте раздел «Изменения».';
+      btn.disabled = false;
+      btn.textContent = 'Применить';
+      recompute();
+      render();
+    });
+  }
+
+  // ---------- reset what was uploaded ----------
+  var EXAM_NOTE = /^(экзамен|зачёт|диф\. зачёт): /i, PRACTICE_NOTE = /^практика из «/;
+  function resetExams() {
+    var cancels = EDITS.list.filter(function (e) { return e.kind === 'cancel' && EXAM_NOTE.test(e.note || ''); });
+    var n = EXI.raw.length;
+    if (!n && !cancels.length) { toast('Загруженных экзаменов нет: сбрасывать нечего.'); return; }
+    if (!confirm('Убрать все загруженные экзамены и зачёты (' + n + ')' + (cancels.length ? ' и вернуть ' + count(cancels.length, 'пару', 'пары', 'пар') + ', отменённые под экзамены' : '') + '?\n\nОстанутся экзамены из таблицы колледжа и графиков (data/exams.json). Прошлый список можно будет вернуть кнопкой «Откатить» в журнале правок.')) return;
+    var btn = $('e-xreset');
+    btn.disabled = true;
+    (n ? Api.examsImport([], 'сброс загруженных экзаменов') : Promise.resolve()).then(function () {
+      return cancels.length ? Api.remove(cancels.map(function (e) { return e.id; }), { comment: 'сброс загруженных экзаменов' }) : null;
+    }).then(function () {
+      HIST.status = 'idle';
+      return loadEdits();
+    }).then(function () {
+      toast('Сброшено: экзаменов — ' + n + ', возвращено пар — ' + cancels.length + '.');
+    }, function (err) { toast(err.message, true); }).then(function () { btn.disabled = false; });
+  }
+  function resetPractice() {
+    var edits = EDITS.list.filter(function (e) { return PRACTICE_NOTE.test(e.note || ''); });
+    var weeks = GOV.list.filter(function (g) { return PRACTICE_NOTE.test(g.note || ''); });
+    if (!edits.length && !weeks.length) { toast('Загруженной практики нет: сбрасывать нечего.'); return; }
+    if (!confirm('Убрать всё, что внесла загрузка практики: ' + count(weeks.length, 'неделю', 'недели', 'недель') + ' в графике и ' + count(edits.length, 'правку', 'правки', 'правок') + ' пар? Расписание и график вернутся как в таблице и PDF.')) return;
+    var items = weeks.map(function (g) { return { group: g.group, week: g.week, days: '', note: '' }; }), out = [];
+    for (var i = 0; i < items.length; i += 150) out.push(items.slice(i, i + 150));
+    out.reduce(function (pr, ch) { return pr.then(function () { return Api.grafikSave(ch, 'сброс загруженной практики').then(function () { setGrafik(ch); }); }); }, Promise.resolve()).then(function () {
+      return edits.length ? Api.remove(edits.map(function (e) { return e.id; }), { comment: 'сброс загруженной практики' }).then(function (removed) { setEdits(EDITS.list.filter(function (x) { return removed.indexOf(x.id) < 0; }), 'ok'); }) : null;
+    }).then(function () {
+      HIST.status = 'idle';
+      recompute();
+      render();
+      toast('Практика сброшена: недель в графике — ' + weeks.length + ', правок пар — ' + edits.length + '.');
+    }, function (err) { toast(err.message, true); recompute(); render(); });
+  }
+
   // Excel export of the filtered list in the import format (ТЗ БП 1.5 «Экспорт в Excel»)
   var xlsxPromise = null;
   function loadXlsx() {
@@ -3287,6 +3860,7 @@
     btn.classList.toggle('is-in', !!u);
     btn.setAttribute('aria-label', u ? 'Администратор ' + u.name + ': меню' : 'Войти как администратор');
     document.documentElement.classList.toggle('is-admin', !!u);
+    $('g-pi-field').hidden = !u;
     $('demo-note').hidden = !(u && Api.mode === 'demo');
   }
   function openLogin() {
@@ -3541,7 +4115,7 @@
       } else if (net.listLive) {
         var live = shown.filter(function (s) { return s.source === 'live'; });
         var at = live.length ? Math.max.apply(null, live.map(function (s) { return s.at; })) : Date.now();
-        st = 'ok'; text = 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(at) + '.';
+        st = 'ok'; text = 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(at) + '.' + (syncMinutes() ? ' Сайт сам перечитывает таблицу каждые ' + count(syncMinutes(), 'минуту', 'минуты', 'минут') + '.' : '');
       } else { st = 'loading'; text = 'Загружаю расписание из Google-таблицы…'; }
     }
     if (state.view === 'hours' && PLAN.source === 'cache' && st === 'ok') { st = 'stale'; text = 'Учебный план не обновился: показана сохранённая копия от ' + fmtStamp(PLAN.at) + '.'; }
@@ -3562,11 +4136,12 @@
     rb.textContent = isAdmin() ? 'Обновить и импортировать' : 'Обновить';
     rb.title = isAdmin() ? 'Заново прочитать таблицу и учебный план, сравнить с прошлым импортом и записать изменения в журнал' : 'Заново прочитать таблицу и учебный план';
     // ТЗ, этап 2: «админ получает предупреждение»
-    var gb = $('guards');
-    gb.hidden = !(isAdmin() && guards.length);
+    var gb = $('guards'), notes = Object.keys(net.notes);
+    gb.hidden = !(isAdmin() && (guards.length || notes.length));
     if (!gb.hidden) {
-      gb.innerHTML = '<p><strong>Предупреждение для администратора: парсер не справился</strong></p><ul>' + guards.map(function (n) { return '<li>' + esc(net.guards[n]) + '</li>'; }).join('') + '</ul>' +
-        '<p class="hint">Данные этих листов не затёрты. При «Обновить и импортировать» предупреждение попадёт в журнал «Изменения в таблице колледжа».</p>';
+      gb.innerHTML = (guards.length ? '<p><strong>Предупреждение для администратора: парсер не справился</strong></p><ul>' + guards.map(function (n) { return '<li>' + esc(net.guards[n]) + '</li>'; }).join('') + '</ul>' +
+        '<p class="hint">Данные этих листов не затёрты. При «Обновить и импортировать» предупреждение попадёт в журнал «Изменения в таблице колледжа».</p>' : '') +
+        (notes.length ? '<p><strong>Проверьте листы</strong></p><ul>' + notes.map(function (n) { return '<li>' + esc(net.notes[n]) + '</li>'; }).join('') + '</ul>' : '');
     }
   }
 
@@ -3789,6 +4364,22 @@
     if (e.target.closest('[data-history-retry]')) { loadHistory(true); return; }
     if (ke) { keepEdit(ke.getAttribute('data-keep-edit')); return; }
     if (de) { dropEdit(de.getAttribute('data-drop-edit')); return; }
+    var dm = e.target.closest('[data-drop-many]');
+    if (dm) {
+      var kind = dm.getAttribute('data-drop-many'), ids = [];
+      if (kind === 'intable') ids = EDITS.list.filter(function (x) { return IN_TABLE[x.id]; }).map(function (x) { return x.id; });
+      else Object.keys(DB.sheets).forEach(function (g) { DB.sheets[g].rows.forEach(function (r) { if (r.conflict && r.edit && !r.away && ids.indexOf(r.edit.id) < 0) ids.push(r.edit.id); }); });
+      if (!ids.length) return;
+      if (!confirm(kind === 'intable' ? 'Убрать ' + count(ids.length, 'правку', 'правки', 'правок') + ', которые уже есть в таблице?' : 'Во всех конфликтах взять расписание из таблицы? Будет убрано ' + count(ids.length, 'правка', 'правки', 'правок') + '.')) return;
+      dm.disabled = true;
+      Api.remove(ids, { comment: kind === 'intable' ? 'уже внесено в таблицу' : 'конфликт: взято из таблицы' }).then(function (removed) {
+        setEdits(EDITS.list.filter(function (x) { return removed.indexOf(x.id) < 0; }), 'ok');
+        HIST.status = 'idle'; loadHistory(true);
+        recompute(); render();
+        toast('Убрано ' + count(removed.length, 'правка', 'правки', 'правок') + ': пары идут по таблице.');
+      }, function (err) { dm.disabled = false; toast(err.message, true); });
+      return;
+    }
     if (rb) {
       var batch = rb.getAttribute('data-remove-batch'), n = EDITS.list.filter(function (x) { return x.batch === batch; }).length;
       if (!confirm('Убрать всю массовую замену (' + count(n, 'пара', 'пары', 'пар') + ')? Пары снова пойдут по основному расписанию.')) return;
@@ -4027,6 +4618,8 @@
     if (b) { state.bookHalf = +b.getAttribute('data-value'); render(); }
   });
   $('e-import').addEventListener('click', openExamImport);
+  $('e-xreset').addEventListener('click', resetExams);
+  document.addEventListener('click', function (e) { if (e.target.closest('[data-pi-reset]')) resetPractice(); });
   function takeExamFile(f) {
     if (!f) return;
     $('xi-status').textContent = 'Читаю «' + f.name + '»…';
@@ -4035,6 +4628,23 @@
     readExamFile(f).then(function (res) { showExamPreview(res, f.name); }, function (err) { $('xi-status').textContent = 'Не удалось прочитать файл: ' + err.message + '.'; });
   }
   $('xi-file').addEventListener('change', function (e) { takeExamFile(e.target.files && e.target.files[0]); });
+  document.addEventListener('click', function (e) { if (e.target.closest('[data-pi-open]')) openPracticeImport(); });
+  $('pi-file').addEventListener('change', function (e) { takePracticeFile(e.target.files && e.target.files[0]); });
+  $('pi-read').addEventListener('click', function () {
+    var u = $('pi-url').value.trim();
+    if (!u) { $('pi-status').textContent = 'Вставьте ссылку на Google-таблицу, Google-документ или файл на Google Диске.'; $('pi-url').focus(); return; }
+    $('pi-status').textContent = 'Открываю ссылку…';
+    $('pi-preview').innerHTML = '';
+    readGoogleLink(u).then(function (r) { takePracticeTables(r.tables, r.name); }, function (err) { $('pi-status').textContent = 'Не удалось открыть ссылку: ' + err.message; });
+  });
+  $('pi-save').addEventListener('click', savePracticeImport);
+  $('pi-cancel').addEventListener('click', function () { $('pi-dialog').close(); });
+  $('pi-preview').addEventListener('change', function (e) {
+    var a = e.target.getAttribute('data-pi-apply'), c = e.target.getAttribute('data-pi-cancel');
+    if (a != null && pi.items[+a]) pi.items[+a].apply = e.target.checked;
+    if (c != null && pi.items[+c]) pi.items[+c].cancel = e.target.checked;
+    if (a != null || c != null) renderPracticeReview();
+  });
   $('xi-preview').addEventListener('change', function (e) {
     var k = e.target.getAttribute('data-xi-cancel');
     if (!k || !xi.review) return;
@@ -4043,24 +4653,34 @@
   });
   // a file dropped on the dialog, or on the exams page by an admin, is read right away
   function hasFiles(e) { return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0; }
+  // a file dropped on the exams page goes to the exam import, on the timetable or the schedule — to the practice import
+  function dropTarget() {
+    if ($('xi-dialog').open) return 'xi';
+    if ($('pi-dialog').open) return 'pi';
+    if (!isAdmin()) return '';
+    return state.view === 'exams' ? 'xi' : state.view === 'lessons' || state.view === 'grafik' ? 'pi' : '';
+  }
   document.addEventListener('dragover', function (e) {
-    if (!hasFiles(e) || !isAdmin() || (state.view !== 'exams' && !$('xi-dialog').open)) return;
+    var t = hasFiles(e) ? dropTarget() : '';
+    if (!t) return;
     e.preventDefault();
-    $('xi-drop').classList.add('is-over');
+    $(t + '-drop').classList.add('is-over');
   });
-  document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) $('xi-drop').classList.remove('is-over'); });
+  document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) { $('xi-drop').classList.remove('is-over'); $('pi-drop').classList.remove('is-over'); } });
   document.addEventListener('drop', function (e) {
-    if (!hasFiles(e) || !isAdmin() || (state.view !== 'exams' && !$('xi-dialog').open)) return;
+    var t = hasFiles(e) ? dropTarget() : '';
+    if (!t) return;
     e.preventDefault();
-    $('xi-drop').classList.remove('is-over');
-    if (!$('xi-dialog').open) openExamImport();
-    takeExamFile(e.dataTransfer.files[0]);
+    $(t + '-drop').classList.remove('is-over');
+    if (t === 'xi') { if (!$('xi-dialog').open) openExamImport(); takeExamFile(e.dataTransfer.files[0]); }
+    else { if (!$('pi-dialog').open) openPracticeImport(); takePracticeFile(e.dataTransfer.files[0]); }
   });
   $('xi-read').addEventListener('click', function () {
     var u = $('xi-url').value.trim();
-    if (!u) { $('xi-status').textContent = 'Вставьте ссылку на Google-документ.'; $('xi-url').focus(); return; }
-    $('xi-status').textContent = 'Открываю документ…';
-    Api.fetchDoc(u).then(function (html) { showExamPreview(examsFromTables(tablesFromHtml(html)), 'Google-документ'); }, function (err) { $('xi-status').textContent = err.message; });
+    if (!u) { $('xi-status').textContent = 'Вставьте ссылку на Google-таблицу, Google-документ или файл на Google Диске.'; $('xi-url').focus(); return; }
+    $('xi-status').textContent = 'Открываю ссылку…';
+    $('xi-preview').innerHTML = '';
+    readGoogleLink(u).then(function (r) { showExamPreview(examsFromTables(r.tables), r.name); }, function (err) { $('xi-status').textContent = 'Не удалось открыть ссылку: ' + err.message; });
   });
   $('xi-save').addEventListener('click', saveExamImport);
   $('xi-cancel').addEventListener('click', function () { $('xi-dialog').close(); });
@@ -4230,6 +4850,13 @@
     setInterval(function () { if (state.view === 'lessons' && !document.querySelector('dialog[open]')) render(); }, 60000);
     // new replacements from the admins show up without reloading the page
     setInterval(function () { if (!document.hidden && !document.querySelector('dialog[open]')) loadEdits(); }, 180000);
+    // and so do the changes in the college table
+    setInterval(function () { if (!document.hidden && syncDue() && !document.querySelector('dialog[open]:not(#xi-dialog)')) syncNow(); }, 30000);
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      if (syncMinutes() && Date.now() - net.synced > 60000) syncNow();
+      if (Date.now() - EDITS.at > 60000) loadEdits();
+    });
     // the sliding plates follow every change of choice, a dialog opening, the fonts arriving and the window size
     if (window.MutationObserver) new MutationObserver(queueThumbs).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-checked', 'aria-selected', 'hidden', 'open'] });
     window.addEventListener('resize', queueThumbs);
@@ -4237,7 +4864,7 @@
     if (wantLogin) openAdmin();
     // when the site is opened from this computer, expose the data for checks in the console
     if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
-      window.__raspisanie = { DB: DB, net: net, ensureAll: ensureAll, get EX() { return EX; }, applyExams: applyExams, get EDITS() { return EDITS; }, get PLAN() { return PLAN; }, get GRAFIK() { return GRAFIK; }, countFor: countFor, planFor: planFor, half2Of: half2Of, get GOV() { return GOV; }, get TJ() { return TJ; }, refreshAll: refreshAll, diffRows: diffRows, examsFromTables: examsFromTables, tablesFromHtml: tablesFromHtml, readExamFile: readExamFile, showExamPreview: showExamPreview, openExamImport: openExamImport };
+      window.__raspisanie = { DB: DB, net: net, ensureAll: ensureAll, get EX() { return EX; }, applyExams: applyExams, get EDITS() { return EDITS; }, get PLAN() { return PLAN; }, get GRAFIK() { return GRAFIK; }, countFor: countFor, planFor: planFor, half2Of: half2Of, get GOV() { return GOV; }, get TJ() { return TJ; }, refreshAll: refreshAll, syncNow: syncNow, diffRows: diffRows, examsFromTables: examsFromTables, tablesFromHtml: tablesFromHtml, readExamFile: readExamFile, showExamPreview: showExamPreview, openExamImport: openExamImport, piPeriods: piPeriods, piPairs: piPairs, readDocTables: readDocTables };
     }
   })();
 })();

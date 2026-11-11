@@ -92,6 +92,8 @@
     tableJournal: function (group) { return call('tableJournal', { group: group || '', limit: 1500 }); },
     examsImport: function (records, source) { return admin('examsImport', { records: records, source: source || '' }); },
     fetchDoc: function (docUrl) { return admin('fetchDoc', { url: docUrl }).then(function (r) { return r.html; }); },
+    // a Google Doc as HTML, or a Google Sheet / a Drive file as base64 (data) with its name
+    fetchLink: function (link) { return admin('fetchDoc', { url: link }); },
     password: function (old, next) { return admin('password', { old: old, next: next }); }
   };
 })();

@@ -1212,3 +1212,8 @@ input[type="file"] { padding: 8px 0; }
 .xi-bad ul { margin: 6px 0 0; padding-left: 1.2em; }
 #xi-dialog { width: min(1040px, calc(100vw - 24px)); }
 .xi-table td:last-child { min-width: 280px; }
+#pi-dialog { width: min(1040px, calc(100vw - 24px)); }
+.pi-kinds { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.pi-table tr.is-off td { opacity: .5; }
+.pi-table td:first-child { width: 1%; }
+.pi-table input[type="checkbox"] { width: 20px; height: 20px; }
