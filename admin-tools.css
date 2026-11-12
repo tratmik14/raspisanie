@@ -31,4 +31,5 @@
 .management-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .exam-edit { display: inline-flex; align-items: center; gap: .35rem; margin-bottom: .35rem; }
 #retake-dialog input[type="time"] { width: 100%; height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--fg); font: inherit; box-sizing: border-box; }
-@media (max-width: 560px) { .management-actions .btn { width: 100%; text-align: left; white-space: normal; } }
+@media (max-width: 560px) { .management-actions .btn { width: 100%; min-height: 44px; text-align: left; white-space: normal; } .admin-tools .btn { min-height: 44px; } }
+
