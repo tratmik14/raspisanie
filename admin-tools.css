@@ -8,5 +8,6 @@
 .repeat-fields .hint { margin: .75rem 0 0; }
 .exam-edit { vertical-align: middle; }
 .exam-edit svg { display: block; }
+#plan-dialog input[type="number"], #exam-edit-dialog input[type="time"] { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--fg); font: inherit; font-weight: 600; box-sizing: border-box; }
 @media (max-width: 560px) { .repeat-fields { padding: .75rem; } .admin-tools { align-items: stretch; } .admin-tools .btn { width: 100%; } }
 
