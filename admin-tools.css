@@ -1,0 +1,12 @@
+.admin-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .75rem 0; }
+.admin-tools .hint { flex: 1 1 20rem; }
+.admin-tools[hidden] { display: none; }
+.repeat-fields { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 1rem; margin: 1rem 0; min-width: 0; }
+.repeat-fields legend { padding: 0 .4rem; font-weight: 600; color: var(--fg); }
+.repeat-check { display: flex; align-items: start; gap: .6rem; color: var(--fg-2); }
+.repeat-check input { flex: none; margin-top: .2rem; }
+.repeat-fields .hint { margin: .75rem 0 0; }
+.exam-edit { vertical-align: middle; }
+.exam-edit svg { display: block; }
+@media (max-width: 560px) { .repeat-fields { padding: .75rem; } .admin-tools { align-items: stretch; } .admin-tools .btn { width: 100%; } }
+

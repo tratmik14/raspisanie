@@ -16,7 +16,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '4.3';
+  var SITE_VERSION = '5.0';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -48,6 +48,8 @@
   ];
   var Api = window.RaspApi;
   var Hours = window.RaspHours;
+  var Rules = window.RaspRules;
+  var PLAN_OVERRIDES = [];
   function exDefaults() {
     return { group: [], teacher: [], disc: [], type: 'exam', status: 'all', half: 'all', from: '', to: '', search: '', ordering: '', page: 1, pageSize: 20, rpage: 1 };
   }
@@ -551,7 +553,7 @@
     });
     var extra = EXF.records.length + EXI.records.length > 0;
     EX = {
-      status: extra ? 'ok' : EXS.status === 'loading' || EXF.status === 'loading' ? 'loading' : EXS.status, records: records, skipped: EXS.skipped,
+      status: CFG.dataSource === 'database' || extra ? 'ok' : EXS.status === 'loading' || EXF.status === 'loading' ? 'loading' : EXS.status, records: records, skipped: EXS.skipped,
       source: EXS.source || (extra ? 'live' : ''), at: EXS.at || EXI.at, imported: EXI.records.length
     };
   }
@@ -565,6 +567,7 @@
   }
   // edits, schedule corrections and imported exams from the server (state), kept for offline visits
   function setState(st, status) {
+    PLAN_OVERRIDES = st.plans || [];
     GOV = { list: st.grafik || [], map: {} };
     GOV.list.forEach(function (g) { (GOV.map[g.group] || (GOV.map[g.group] = {}))[g.week] = g; });
     EXI = {
@@ -577,7 +580,7 @@
     setEdits(st.edits || [], status);
   }
   function persistState() {
-    try { localStorage.setItem(STATE_KEY, JSON.stringify({ t: Date.now(), state: { edits: EDITS.list, grafik: GOV.list, exams: EXI.raw } })); }
+    try { localStorage.setItem(STATE_KEY, JSON.stringify({ t: Date.now(), state: { edits: EDITS.list, grafik: GOV.list, exams: EXI.raw, plans: PLAN_OVERRIDES } })); }
     catch (e) { /* storage unavailable */ }
   }
   function setGrafik(items) {
@@ -609,7 +612,19 @@
   }
   function planFor(group) {
     var key = resolveKey(group, PLAN.order, function (k) { return PLAN.groups[k].course; });
-    return key ? PLAN.groups[key] : null;
+    var base = key ? PLAN.groups[key] : null;
+    var overrides = PLAN_OVERRIDES.filter(function (r) { return r.group === group; });
+    if (!overrides.length) return base;
+    var subjects = base ? base.subjects.map(function (x) { return Object.assign({}, x); }) : [];
+    overrides.forEach(function (r) {
+      var i = subjects.findIndex(function (x) { return x.name === r.name; });
+      var next = Object.assign({}, i >= 0 ? subjects[i] : {}, {
+        name: r.name, code: Hours.codeOf(r.name).code, s1: +r.s1, s2: +r.s2,
+        year: +r.s1 + +r.s2, teacher: r.teacher, form: [r.f1 || '', r.f2 || '']
+      });
+      if (i >= 0) subjects[i] = next; else subjects.push(next);
+    });
+    return Object.assign({}, base || { group: group, title: '', course: courseOf(group) }, { subjects: subjects });
   }
   // The PDF schedule of a group with the admins' corrections laid over it («.» keeps the PDF day).
   function grafikFor(group) {
@@ -701,6 +716,8 @@
   function recompute() {
     var set = {}, votes = {};
     Object.keys(DB.calendar).forEach(function (m) { set[m] = true; });
+    if (GRAFIK.data) GRAFIK.data.weeks.forEach(function (w) { set[utcOfIso(w)] = true; });
+    EDITS.list.forEach(function (e) { set[mondayOfUtc(utcOfIso(e.date))] = true; });
     Object.keys(DB.sheets).forEach(function (g) {
       DB.sheets[g].scan.blocks.forEach(function (b) {
         if (b.monday == null) return;
@@ -926,7 +943,7 @@
         else if (state.span === 'today' || state.span === 'tomorrow') p.set('span', state.span);
         else if (state.week && state.week !== currentWeekIso()) p.set('week', state.week);
       }
-      if (state.view === 'hours' && state.half != null) p.set('half', state.half);
+      if ((state.view === 'hours' || state.view === 'balance') && state.half != null) p.set('half', state.half);
       if (state.view === 'balance' && state.balAll) { p.delete('group'); p.delete('teacher'); p.set('all', '1'); }
       if (state.view === 'balance' && !state.balAll && state.mode === 'teacher') { p.delete('teacher'); if (state.group) p.set('group', state.group); }
     }
@@ -936,6 +953,12 @@
     try { history.replaceState(null, '', target); } catch (e) { /* ignore */ }
   }
 
+  window.RaspAdminTools.init({
+    user: isAdmin, groups: function () { return DB.groups; }, group: function () { return state.group || DB.groups[0] || ''; },
+    plan: planFor, exams: function () { return EX.records; }, api: Api,
+    refresh: function () { HIST.status = 'idle'; return loadEdits().then(function () { recompute(); render(); }); },
+    toast: toast, esc: esc
+  });
   // ---------- loading ----------
   function isLive(group) { return !!DB.sheets[group] && (DB.sheets[group].source === 'live' || !!DB.sheets[group].fresh); }
   function allLive() { return DB.groups.length > 0 && DB.groups.every(isLive); }
@@ -1243,7 +1266,7 @@
     return order.map(function (k) { return map[k]; }).sort(function (a, b) { return (a.sub || 0) - (b.sub || 0) || (a.cancelled || a.away ? 1 : 0) - (b.cancelled || b.away ? 1 : 0); });
   }
   // ---------- record type, source and change time ----------
-  // «Основная» — пара из Google-таблицы; «Замена» — администратор поставил вместо неё другую;
+  // «Основная» — пара из базы расписания; «Замена» — администратор поставил вместо неё другую;
   // «Ручная правка» — администратор добавил, отменил или перенёс пару.
   var REC_TYPES = { main: 'Основная', replace: 'Замена', manual: 'Ручная правка' };
   function recordType(edit) {
@@ -1327,16 +1350,16 @@
     var head = '<header class="dhead"><span class="dname">' + WEEKDAYS_MON[wd] + '</span><span class="ddate">' + fmtDayMonth(dayIso) + '</span>' +
       (rel ? '<span class="rel">' + rel + '</span>' : '') + '</header>';
     var addBtn = canAdd ? '<button type="button" class="btn btn-quiet btn-small add-pair" data-add-day="' + dayIso + '">' + PLUS + 'Добавить пару</button>' : '';
-    if (!rows.length) return '<article class="dcard' + cls + '">' + head + '<p class="dempty">Пар нет</p>' + addBtn + '</article>';
+    if (!rows.length && !DB.slots.length) return '<article class="dcard' + cls + '">' + head + '<p class="dempty">Пар нет</p>' + addBtn + '</article>';
     var byPair = {};
     rows.forEach(function (r) { var n = slotOf(r).n; (byPair[n] || (byPair[n] = [])).push(r); });
     var nums = Object.keys(byPair).map(Number).sort(function (a, b) { return a - b; });
     var nowMin = new Date().getHours() * 60 + new Date().getMinutes();
     var items = [];
-    for (var p = nums[0]; p <= nums[nums.length - 1]; p++) {
+    for (var p = 1; p <= DB.slots.length; p++) {
       var s = DB.slots[p - 1];
       if (!byPair[p]) {
-        items.push('<li class="pair gap"><span class="pnum"><b>' + p + '</b></span><span>Окно' + (s ? ', ' + esc(s.start) + '–' + esc(s.end) : '') + '</span>' +
+        items.push('<li class="pair gap"><span class="pnum"><b>' + p + '</b></span><span>Свободная пара' + (s ? ', ' + esc(s.start) + '–' + esc(s.end) : '') + '</span>' +
           (canAdd && s ? '<button type="button" class="pair-edit" data-add-day="' + dayIso + '" data-add-start="' + esc(s.start) + '" aria-label="Поставить пару на окно ' + p + '">' + PLUS + '</button>' : '') + '</li>');
         continue;
       }
@@ -1502,8 +1525,8 @@
     renderSpan(dayIso);
 
     if (!DB.groups.length) {
-      if (net.listFailed) showEmpty('Не удалось загрузить расписание из Google-таблицы. Проверьте подключение к интернету. Если ошибка повторяется, проверьте, что таблица открыта по ссылке.', 'Повторить', 'retry');
-      else showEmpty('Загружаю расписание из Google-таблицы…');
+      if (net.listFailed) showEmpty('Не удалось загрузить расписание из базы расписания. Проверьте подключение к интернету. Если ошибка повторяется, проверьте подключение сервера базы; открывать таблицу для всех не нужно.', 'Повторить', 'retry');
+      else showEmpty('Загружаю расписание из базы расписания…');
       return;
     }
     if (!sel) {
@@ -1541,7 +1564,7 @@
       total += rows.length;
       cards.push(dayCardHTML(dayIso, wd, rows, sel, today));
     }
-    if (total || (isAdmin() && sel.mode === 'group')) weekEl.innerHTML = cards.join('');
+    if (sel.mode === 'group' || total || isAdmin()) weekEl.innerHTML = cards.join('');
     else {
       var other = findWeekWithLessons(sel, wi);
       var why = 'На эту неделю пар нет: расписание ещё не заполнено или идёт практика.';
@@ -1733,10 +1756,14 @@
   // ---------- hours view ----------
   function nowMinutes() { var t = new Date(); return t.getHours() * 60 + t.getMinutes(); }
   function currentHalf(group) { return todayISO() < half2Of(group) ? 1 : 2; }
+  function balanceHalf(group) { return state.half == null ? currentHalf(group) : state.half; }
+  function balanceKey(group) { return group + '|' + balanceHalf(group); }
+  function academicEnd() { return (+acadStart().slice(0, 4) + 1) + '-08-01'; }
+  function inAcademicPeriod(day, group, half) { return Rules.inPeriod(day, acadStart(), half2Of(group), academicEnd(), half); }
   function countFor(group, teacher) {
     var sheet = DB.sheets[group];
     if (!sheet) return null;
-    var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && (!teacher || r.teacher === teacher); });
+    var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && inAcademicPeriod(r.day, group, 0) && (!teacher || r.teacher === teacher); });
     return Hours.countHours(rows, { today: todayISO(), nowMin: nowMinutes(), half2: half2Of(group), hoursPerPair: CFG.hoursPerPair || 2 });
   }
   // Share of the theory days of the half that are already behind us, from the PDF schedule.
@@ -1895,7 +1922,7 @@
   // the next practice of the group in this half: its first day, the last theory day before it and how many
   // theory days are left until then; with no practice ahead, the end of theory of the half
   function practiceAhead(group) {
-    var half = currentHalf(group), days = halfDays(group, half), today = todayISO();
+    var half = balanceHalf(group), days = halfDays(group, half), today = todayISO();
     if (!days.length) return null;
     var start = '', now = false;
     for (var w = 0; w + 4 < days.length; w += 5) {
@@ -1959,7 +1986,7 @@
     if (!gf) return [];
     var h2 = half2Of(group), out = [];
     GRAFIK.data.weeks.forEach(function (w, i) {
-      if (half === 1 ? w >= h2 : w < h2) return;
+      if (half !== 0 && (half === 1 ? w >= h2 : w < h2)) return;
       for (var d = 0; d < 5; d++) out.push({ iso: isoOfUtc(utcOfIso(w) + d * DAY), c: gf.g.days[i].charAt(d) });
     });
     return out;
@@ -1975,14 +2002,14 @@
   function balanceFor(group) {
     var sheet = DB.sheets[group];
     if (!sheet) return null;
-    var mk = group + '|' + (bal.until[group] || '') + '|' + sheet.at + '|' + EDITS.at + '|' + todayISO();
+    var mk = balanceKey(group) + '|' + (bal.until[balanceKey(group)] || '') + '|' + sheet.at + '|' + EDITS.at + '|' + todayISO();
     if (balMemo[group] && balMemo[group].key === mk) return balMemo[group].value;
     var value = balanceCompute(group, sheet);
     balMemo[group] = { key: mk, value: value };
     return value;
   }
   function balanceCompute(group, sheet) {
-    var half = currentHalf(group), h2 = half2Of(group), per = CFG.hoursPerPair || 2, today = todayISO();
+    var half = balanceHalf(group), h2 = half2Of(group), per = CFG.hoursPerPair || 2, today = todayISO();
     var days = halfDays(group, half);
     var dl = days.length ? Hours.balanceDeadline(days) : { theoryEnd: '', until: '' };
     var covered = coverage(group, half);
@@ -1990,12 +2017,17 @@
     // practice, and a timetable stretched over them (a weekly pattern pasted to December) is not real.
     // «Перед сессией» moves the deadline to the last day before the session, for pairs held during practice.
     var autoUntil = dl.theoryEnd || dl.until || covered;
-    var until = bal.until[group] || autoUntil;
-    var inHalf = function (iso) { return half === 1 ? iso < h2 : iso >= h2; };
+    var until = bal.until[balanceKey(group)] || autoUntil;
+    var inHalf = function (iso) { return inAcademicPeriod(iso, group, half); };
     var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && inHalf(r.day); });
     var holiday = {};
     rows.forEach(function (r) { if (isHoliday(r.day) && (!until || r.day <= until)) holiday[pairKey(r)] = r.day; });
-    var counted = rows.filter(function (r) { return (!until || r.day <= until) && !isHoliday(r.day); });
+    var termEnds = [null, Hours.balanceDeadline(halfDays(group, 1)), Hours.balanceDeadline(halfDays(group, 2))];
+    var counted = rows.filter(function (r) {
+      var h = r.day < h2 ? 1 : 2, limit = termEnds[h].theoryEnd || termEnds[h].until;
+      return (!until || r.day <= until) && !isHoliday(r.day) &&
+        (half !== 0 || bal.until[balanceKey(group)] || !limit || r.day <= limit);
+    });
     var after = {}, onPractice = {}, types = {};
     // whole weeks of practice only: groups with a practice day inside a theory week (СПм-25: «TUTTT»)
     // often hold that day on another weekday than the PDF says
@@ -2229,6 +2261,7 @@
     var opts = '<option value="">Выберите группу</option>' + DB.groups.map(function (g) { return '<option value="' + esc(g) + '"' + (g === cur ? ' selected' : '') + '>' + esc(g) + (isUrgent(g) ? ' — горит' : '') + '</option>'; }).join('');
     var html = '<section class="filters bal-filters" aria-label="Группа">' +
       '<div class="field"><label for="bal-group">Группа</label><select id="bal-group">' + opts + '</select></div>' +
+      '<div class="field"><label for="bal-half">Период</label><select id="bal-half">' + [1, 2, 0].map(function (h) { return '<option value="' + h + '"' + (balanceHalf(cur || DB.groups[0]) === h ? ' selected' : '') + '>' + (h ? h + ' семестр' : 'Весь учебный год') + '</option>'; }).join('') + '</select></div>' +
       '<div class="field"><span class="label">Сводка</span><button type="button" class="btn' + (state.balAll ? ' btn-primary' : '') + '" data-bal-all aria-pressed="' + (state.balAll ? 'true' : 'false') + '">Все группы</button></div></section>';
     if (urgent.length) {
       html += '<section class="bal-urgent" aria-labelledby="bal-urgent-h"><h2 id="bal-urgent-h">Горящие группы: срочная вычитка часов</h2><div class="bal-cards">' +
@@ -2634,6 +2667,12 @@
           before = gb ? daysText(gb.days) : ''; after = ga ? daysText(ga.days) + (ga.note ? ' (' + ga.note + ')' : '') : 'как в PDF';
           tag = '<span class="rt rt-grafik">График</span>';
           what = 'График учебного процесса, <span class="grp" translate="no">' + esc(h.group) + '</span>, неделя с ' + esc(fmtDayMonth(h.date)) + '.';
+        } else if (target === 'plan') {
+          var pb = parseJSON(h.before), pa = parseJSON(h.after);
+          before = pb ? pb.s1 + ' / ' + pb.s2 + ' ч.' : 'исходный учебный план';
+          after = pa ? pa.s1 + ' / ' + pa.s2 + ' ч.' : 'исходный учебный план';
+          tag = '<span class="rt rt-grafik">Учебный план</span>';
+          what = '<span translate="no">' + esc(h.group) + '</span>: ' + esc((pa || pb || {}).name || '') + '.';
         } else if (target === 'exams') {
           var xb = parseJSON(h.before) || {}, xa = parseJSON(h.after) || {};
           before = count(+xb.count || 0, 'запись', 'записи', 'записей'); after = count(+xa.count || 0, 'запись', 'записи', 'записей') + (xa.source ? ' из «' + xa.source + '»' : '');
@@ -2659,7 +2698,7 @@
   // ТЗ, этап 2: «сравнение с прошлой версией и журнал „что изменилось“» по импортам таблицы
   function tableJournalHTML(want) {
     var items = TJ.items.filter(function (j) { return !want || j.group === want; });
-    var head = '<section class="tablebox"><div class="table-head"><h2>Изменения в таблице колледжа</h2><span class="count">' +
+    var head = '<section class="tablebox"><div class="table-head"><h2>Изменения в базе расписания</h2><span class="count">' +
       (TJ.status === 'loading' ? 'загружаю…' : TJ.status === 'error' ? 'не загрузился' : count(items.length, 'запись', 'записи', 'записей')) + '</span></div>';
     if (!items.length) {
       return head + '<p class="pad">' + (TJ.status === 'ok' ? 'Изменений пока нет. Журнал пополняется, когда администратор нажимает «Обновить и импортировать»: сайт сравнивает таблицу с прошлым импортом.' : '') + '</p></section>';
@@ -2702,7 +2741,7 @@
     if (ex.teacher.length && !splitTeachers(r.teacher).some(function (t) { return ex.teacher.indexOf(t) >= 0; })) return false;
     if (ex.disc.length && ex.disc.indexOf(r.discipline) < 0) return false;
     if (ex.type !== 'all' && ex.type !== 'retake' && TYPE_KEY[r.type] !== ex.type) return false;
-    if (ex.half !== 'all' && halfOf(it.date) !== ex.half) return false;
+    if (ex.half !== 'all' && (it.date < half2Of(r.group) ? '1' : '2') !== ex.half) return false;
     var st = statusOf(it, today);
     if (ex.status === 'future' && st === 'past') return false;
     if (ex.status === 'past' && st !== 'past') return false;
@@ -2757,7 +2796,7 @@
     switch (col.key) {
       case 'num': return '<td class="num" data-label="№">' + i + '</td>';
       case 'group': return '<td data-label="Группа"><span class="grp" translate="no">' + esc(r.group) + '</span></td>';
-      case 'disc': return '<td class="title" data-label="Дисциплина">' + discHTML(r.discipline) + (it.retake ? ' (Пересдача)' : '') + '</td>';
+      case 'disc': return '<td class="title" data-label="Дисциплина">' + (isAdmin() ? '<button type="button" class="btn btn-small exam-edit" data-exam-edit="' + EX.records.indexOf(r) + '" aria-label="Изменить: ' + esc(r.discipline) + '">' + PENCIL + '</button> ' : '') + discHTML(r.discipline) + (it.retake ? ' (Пересдача)' : '') + '</td>';
       case 'teacher': return '<td data-label="Преподаватель">' + esc(r.teacher || '—') + '</td>';
       case 'date': return '<td class="mono" data-label="Дата">' + fmtShort(it.date) + '</td>';
       case 'time': return '<td class="mono col-minor" data-label="Время">' + esc(it.time || '—') + '</td>';
@@ -2920,7 +2959,7 @@
     $('e-main').hidden = true;
     $('e-retakes').hidden = true;
     emptyEl.hidden = true;
-    if (EX.status === 'loading') { emptyEl.innerHTML = '<p>Загружаю расписание экзаменов из Google-таблицы…</p>'; emptyEl.hidden = false; return; }
+    if (EX.status === 'loading') { emptyEl.innerHTML = '<p>Загружаю расписание экзаменов из базы расписания…</p>'; emptyEl.hidden = false; return; }
     if (EX.status === 'error') { emptyEl.innerHTML = '<p>Не удалось загрузить расписание экзаменов. Проверьте подключение к интернету.</p><button type="button" class="btn" data-retry>Повторить</button>'; emptyEl.hidden = false; return; }
     if (EX.status === 'none') {
       emptyEl.innerHTML = '<h2>График экзаменов пока не опубликован</h2>' +
@@ -2937,7 +2976,7 @@
     var main = ex.type === 'retake' ? [] : sortItems(all.filter(function (it) { return !it.retake; }));
     var ret = ex.type === 'retake' ? sortItems(all.filter(function (it) { return it.retake; })) : [];
     if (!main.length && !ret.length) {
-      emptyEl.innerHTML = '<p>' + (EX.records.length ? 'По этим фильтрам ничего не нашлось.' : 'На листе «' + esc(CFG.examSheet) + '» пока нет ни одной записи.') + '</p>' +
+      emptyEl.innerHTML = '<p>' + (EX.records.length ? 'По этим фильтрам ничего не нашлось.' : 'В базе пока нет экзаменов и зачётов. Администратор может добавить их кнопкой выше.') + '</p>' +
         (EX.records.length ? '<button type="button" class="btn" data-reset>Сбросить фильтры</button>' : '');
       emptyEl.hidden = false;
       return;
@@ -2956,7 +2995,10 @@
   // ---------- the record book and a teacher's exams (ТЗ, этап 8) ----------
   // An exam of the schedule matched to a plan subject of the group, in the given half of the year.
   // 1 August that opens the current academic year: older sessions stay out of this year's record book
-  function acadStart() { var t = new Date(); return ymd(t.getMonth() >= 6 ? t.getFullYear() : t.getFullYear() - 1, 8, 1); }
+  function acadStart() {
+    if (GRAFIK.data && GRAFIK.data.weeks.length) return GRAFIK.data.weeks[0].slice(0, 4) + '-08-01';
+    var t = new Date(); return ymd(t.getMonth() >= 7 ? t.getFullYear() : t.getFullYear() - 1, 8, 1);
+  }
   function findExam(group, name, half) {
     var h2 = half2Of(group), from = acadStart(), best = null, bestScore = 59;
     EX.records.forEach(function (r) {
@@ -3012,14 +3054,17 @@
   }
   function renderTeacherExams() {
     var box = $('ex-teacher'), t = state.exTeacher || state.teacher;
-    var names = uniq(DB.teachers.concat(EX.records.map(function (r) { return splitTeachers(r.teacher)[0] || ''; }))).sort(cmpRu);
+    var plannedTeachers = [];
+    DB.groups.forEach(function (g) { var p = planFor(g); if (p) p.subjects.forEach(function (s) { plannedTeachers = plannedTeachers.concat(splitTeachers(s.teacher)); }); });
+    var names = uniq(DB.teachers.concat(plannedTeachers, EX.records.map(function (r) { return splitTeachers(r.teacher)[0] || ''; }))).sort(cmpRu);
     var controls = '<section class="filters"><div class="filter-row"><div class="field f-entity"><label for="ext-teacher">Преподаватель</label><select id="ext-teacher" name="ext-teacher">' +
       '<option value="">Выберите преподавателя</option>' + names.map(function (n) { return '<option value="' + esc(n) + '"' + (n === t ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></div></div></section>';
     if (!t) { box.innerHTML = controls + '<p class="empty">Выберите преподавателя, чтобы увидеть его экзамены и зачёты.</p>'; return; }
     var surname = t.split(/\s+/)[0].toLowerCase().replace(/ё/g, 'е'), items = [], used = [];
     function hasT(str) { return String(str || '').toLowerCase().replace(/ё/g, 'е').indexOf(surname) >= 0; }
-    PLAN.order.forEach(function (key) {
-      var p = PLAN.groups[key], g = DB.groups.indexOf(key) >= 0 ? key : resolveKey(key, DB.groups, null) || key;
+    (DB.groups.length ? DB.groups : PLAN.order).forEach(function (g) {
+      var p = planFor(g);
+      if (!p) return;
       p.subjects.forEach(function (sj) {
         if (!hasT(sj.teacher)) return;
         [1, 2].forEach(function (h) {
@@ -3775,7 +3820,7 @@
     var cancels = EDITS.list.filter(function (e) { return e.kind === 'cancel' && EXAM_NOTE.test(e.note || ''); });
     var n = EXI.raw.length;
     if (!n && !cancels.length) { toast('Загруженных экзаменов нет: сбрасывать нечего.'); return; }
-    if (!confirm('Убрать все загруженные экзамены и зачёты (' + n + ')' + (cancels.length ? ' и вернуть ' + count(cancels.length, 'пару', 'пары', 'пар') + ', отменённые под экзамены' : '') + '?\n\nОстанутся экзамены из таблицы колледжа и графиков (data/exams.json). Прошлый список можно будет вернуть кнопкой «Откатить» в журнале правок.')) return;
+    if (!confirm('Очистить список экзаменов и зачётов (' + n + ')' + (cancels.length ? ' и вернуть ' + count(cancels.length, 'пару', 'пары', 'пар') + ', отменённые под экзамены' : '') + '?\n\nСписок в базе сайта будет очищен. Прошлый список можно вернуть кнопкой «Откатить» в журнале правок.')) return;
     var btn = $('e-xreset');
     btn.disabled = true;
     (n ? Api.examsImport([], 'сброс загруженных экзаменов') : Promise.resolve()).then(function () {
@@ -3919,6 +3964,11 @@
     if (!groups.length) return;
     ed = { day: o.day, start: o.start, groups: groups, group: groups[0], all: groups.length > 1, kind: o.kind || '', editId: o.editId || '' };
     $('ed-error').textContent = '';
+    $('ed-repeat').value = 'year';
+    $('ed-repeat-until').value = Rules.shift(academicEnd(), -1);
+    $('ed-repeat-until').min = ed.day;
+    $('ed-repeat-until').max = Rules.shift(academicEnd(), -1);
+    $('ed-study-only').checked = true;
     var gsel = $('ed-group');
     gsel.innerHTML = (groups.length > 1 ? '<option value="*">Все группы потока: ' + esc(groups.join(', ')) + '</option>' : '') +
       groups.map(function (g) { return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('');
@@ -3950,6 +4000,10 @@
     var rows = slotRows(g, ed.day, ed.start);
     var edit = null;
     rows.forEach(function (r) { if (r.edit && (ed.editId ? r.edit.id === ed.editId : r.edit.kind !== 'add') && !edit) edit = r.edit; });
+    if (!edit && !ed.editId) {
+      var liveRows = rows.filter(function (r) { return !r.ghost; });
+      if (liveRows.length === 1 && liveRows[0].edit && liveRows[0].edit.kind === 'add') edit = liveRows[0].edit;
+    }
     if (!edit && ed.editId) edit = EDITS.list.filter(function (e) { return e.id === ed.editId; })[0] || null;
     var base = [];
     rows.forEach(function (r) {
@@ -3981,6 +4035,7 @@
     $('ed-sub').value = String(edit ? +edit.sub || 0 : 0);
     $('ed-note').value = edit ? edit.note || '' : '';
     $('ed-remove').hidden = !edit;
+    $('ed-remove-series').hidden = !(edit && /^r/.test(edit.batch || ''));
     edSetKind(kind);
   }
   function edSetKind(kind) {
@@ -3992,6 +4047,7 @@
     $('ed-move').hidden = kind !== 'move';
     $('ed-slot-field').hidden = kind !== 'add';
     $('ed-save').textContent = kind === 'cancel' ? 'Отменить пару' : kind === 'move' ? 'Перенести пару' : kind === 'add' ? (ed.occupied ? 'Добавить ещё пару' : 'Сохранить пару') : 'Сохранить замену';
+    edRepeatPreview();
     syncRoving();
   }
   function edSave() {
@@ -4002,6 +4058,7 @@
     var list = [], link = 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     var mineAdd = ed.edit && ed.edit.kind === 'add' ? ed.edit.id : '';
     targets.forEach(function (g) {
+      if (!list) return;
       var base = slotRows(g, ed.day, ed.start).filter(function (r) { return !r.edit; }).concat(g === ed.group ? ed.base : []);
       var was = JSON.stringify(uniq(base).map(function (r) { return { disc: r.disc, teacher: r.teacher, room: r.room, sub: r.sub }; }));
       var mine = g === ed.group && ed.edit && ed.edit.kind !== 'add' ? ed.edit.id : '';
@@ -4024,22 +4081,56 @@
       else list.push(Object.assign({ id: mine, kind: base.length ? 'replace' : 'add' }, slot, fields));
     });
     if (!list) { $('ed-error').textContent = 'Выберите другую дату или пару для переноса.'; return; }
+    try {
+      list = Rules.expand(list, edRepeatDates(), ed.day, function (next) {
+        var existing = EDITS.list.filter(function (x) { return x.group === next.group && x.date === next.date && normTime(x.start) === next.start && +x.sub === +next.sub && (next.kind === 'add' ? x.kind === 'add' && x.disc === next.disc : x.kind !== 'add'); })[0];
+        var was = slotRows(next.group, next.date, next.start).filter(function (r) { return !r.ghost && !r.edit; });
+        return { id: existing ? existing.id : '', was: JSON.stringify(was.map(function (r) { return { disc: r.disc, teacher: r.teacher, room: r.room, sub: r.sub }; })) };
+      });
+    } catch (err) { $('ed-error').textContent = err.message; return; }
     var btn = $('ed-save');
     btn.disabled = true;
     btn.textContent = 'Сохраняю…';
     $('ed-error').textContent = '';
-    var batch = targets.length > 1 ? 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : '';
-    Api.save(list, { batch: batch }).then(function (saved) {
-      mergeEdits(saved);
+    var batch = list.length > 1 ? 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : '';
+    var savedAll = [], chunks = [];
+    for (var n = 0; n < list.length; n += 100) chunks.push(list.slice(n, n + 100));
+    chunks.reduce(function (chain, chunk) { return chain.then(function () {
+      return Api.save(chunk, { batch: batch, comment: list.length > 1 ? 'повторение правки на следующие недели' : '' }).then(function (saved) { savedAll = savedAll.concat(saved); mergeEdits(saved); });
+    }); }, Promise.resolve()).then(function () {
       HIST.status = 'idle'; if (state.view === 'history') loadHistory(true);
       $('edit-dialog').close();
       recompute();
       render();
-      toast(ed.kind === 'cancel' ? 'Пара отменена.' : ed.kind === 'move' ? 'Пара перенесена.' : 'Правка сохранена.');
+      toast('Сохранено ' + count(savedAll.length, 'изменение', 'изменения', 'изменений') + '. Часы и вычитка пересчитаны.');
     }, function (err) {
-      $('ed-error').textContent = err.message;
+      $('ed-error').textContent = err.message + (savedAll.length ? ' Часть правок уже сохранена; их можно убрать одной пачкой в разделе «Изменения».' : '');
       if (!Api.user()) { renderAccount(); }
     }).then(function () { btn.disabled = false; edSetKind(ed.kind); });
+  }
+  function edRepeatDates() {
+    if (!ed || $('ed-repeat').value === 'once') return [ed.day];
+    var groups = $('ed-group').value === '*' ? ed.groups : [ed.group];
+    var until = $('ed-repeat-until').value;
+    return Rules.dates(ed.day, until, $('ed-repeat').value === 'alternate' ? 14 : 7, function (day) {
+      var delta = daysBetween(ed.day, day), dest = ed.kind === 'move' && $('ed-move-date').value ? Rules.shift($('ed-move-date').value, delta) : day;
+      if (dest > until || dest >= academicEnd()) return false;
+      if (!$('ed-study-only').checked) return true;
+      return groups.every(function (g) { return [day, dest].every(function (date) {
+        if (isHoliday(date) || isoToDate(date).getDay() === 0) return false;
+        var gw = grafikWeek(g, isoOfUtc(mondayOfUtc(utcOfIso(date)))), wd = (isoToDate(date).getDay() + 6) % 7;
+        if (GRAFIK.data && !gw) return false;
+        return !gw || wd >= 5 || gw.days.charAt(wd) === 'T';
+      }); });
+    });
+  }
+  function edRepeatPreview() {
+    if (!ed) return;
+    var once = $('ed-repeat').value === 'once';
+    $('ed-repeat-until').disabled = once;
+    $('ed-study-only').disabled = once;
+    try { var dates = edRepeatDates(); $('ed-repeat-preview').textContent = 'Правка затронет ' + count(dates.length, 'неделю', 'недели', 'недель') + ', с ' + fmtShort(dates[0]) + ' по ' + fmtShort(dates[dates.length - 1]) + '. Сохранится в базе для всех посетителей.'; }
+    catch (err) { $('ed-repeat-preview').textContent = err.message; }
   }
   function mergeEdits(saved) {
     var ids = saved.map(function (e) { return e.id; });
@@ -4116,13 +4207,13 @@
   function renderStatus() {
     var el = $('status'), text, st;
     if (state.view === 'exams') {
-      if (EX.status === 'loading') { st = 'loading'; text = 'Загружаю расписание экзаменов из Google-таблицы…'; }
-      else if (EX.status === 'error') { st = 'error'; text = 'Не удалось загрузить расписание экзаменов из Google-таблицы.'; }
+      if (EX.status === 'loading') { st = 'loading'; text = 'Загружаю расписание экзаменов из базы расписания…'; }
+      else if (EX.status === 'error') { st = 'error'; text = 'Не удалось загрузить расписание экзаменов из базы расписания.'; }
       else if (EX.source === 'cache') { st = 'stale'; text = 'Google-таблица не ответила. Показана сохранённая копия, загруженная ' + fmtStamp(EX.at) + '.'; }
       else {
         st = 'ok';
         var docs = EXF.records.length ? 'графики экзаменов и зачётной недели' + (EXF.period ? ', ' + EXF.period : '') : '';
-        if (EXS.status === 'ok') text = 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(EX.at) + (docs ? '; к ним добавлены ' + docs : '') + '.';
+        if (EXS.status === 'ok') text = 'Свежие данные из базы расписания, загружены ' + fmtStamp(EX.at) + (docs ? '; к ним добавлены ' + docs : '') + '.';
         else if (docs) text = 'Показаны ' + docs + '.';
         else text = 'Google-таблица прочитана ' + fmtStamp(EX.at) + ': листа с экзаменами в ней пока нет.';
       }
@@ -4131,8 +4222,8 @@
       if (state.mode === 'group' && state.group && DB.sheets[state.group]) shown = [DB.sheets[state.group]];
       if (state.mode === 'teacher') shown = Object.keys(DB.sheets).map(function (g) { return DB.sheets[g]; });
       var anyFailed = net.listFailed || Object.keys(net.failed).length > 0;
-      if (net.bulk) { st = 'loading'; text = 'Загружаю расписание групп из Google-таблицы: ' + net.bulk.done + ' из ' + net.bulk.total + '…'; }
-      else if (net.pending > 0) { st = 'loading'; text = 'Загружаю свежее расписание из Google-таблицы…'; }
+      if (net.bulk) { st = 'loading'; text = 'Загружаю расписание групп из базы расписания: ' + net.bulk.done + ' из ' + net.bulk.total + '…'; }
+      else if (net.pending > 0) { st = 'loading'; text = 'Загружаю свежее расписание из базы расписания…'; }
       else if (anyFailed) {
         var cached = shown.filter(function (s) { return s.source === 'cache'; });
         var hasData = state.mode === 'group' ? DB.groups.length > 0 && (!state.group || !!DB.sheets[state.group]) : shown.length > 0;
@@ -4140,12 +4231,12 @@
           st = 'stale';
           var oldest = cached.length ? Math.min.apply(null, cached.map(function (s) { return s.at; })) : 0;
           text = 'Google-таблица не ответила. ' + (oldest ? 'Показана сохранённая копия, загруженная ' + fmtStamp(oldest) + '.' : 'Показана сохранённая копия.');
-        } else { st = 'error'; text = 'Не удалось загрузить расписание из Google-таблицы.'; }
+        } else { st = 'error'; text = 'Не удалось загрузить расписание из базы расписания.'; }
       } else if (net.listLive) {
         var live = shown.filter(function (s) { return s.source === 'live'; });
         var at = live.length ? Math.max.apply(null, live.map(function (s) { return s.at; })) : Date.now();
-        st = 'ok'; text = 'Свежие данные из Google-таблицы, загружены ' + fmtStamp(at) + '.' + (syncMinutes() ? ' Сайт сам перечитывает таблицу каждые ' + count(syncMinutes(), 'минуту', 'минуты', 'минут') + '.' : '');
-      } else { st = 'loading'; text = 'Загружаю расписание из Google-таблицы…'; }
+        st = 'ok'; text = 'Свежие данные из базы расписания, загружены ' + fmtStamp(at) + '.' + (syncMinutes() ? ' Сайт сам перечитывает таблицу каждые ' + count(syncMinutes(), 'минуту', 'минуты', 'минут') + '.' : '');
+      } else { st = 'loading'; text = 'Загружаю расписание из базы расписания…'; }
     }
     if (state.view === 'hours' && PLAN.source === 'cache' && st === 'ok') { st = 'stale'; text = 'Учебный план не обновился: показана сохранённая копия от ' + fmtStamp(PLAN.at) + '.'; }
     if (EDITS.status === 'error') { if (st === 'ok') st = 'stale'; text += ' Замены от администраторов не загрузились.'; }
@@ -4169,7 +4260,7 @@
     gb.hidden = !(isAdmin() && (guards.length || notes.length));
     if (!gb.hidden) {
       gb.innerHTML = (guards.length ? '<p><strong>Предупреждение для администратора: парсер не справился</strong></p><ul>' + guards.map(function (n) { return '<li>' + esc(net.guards[n]) + '</li>'; }).join('') + '</ul>' +
-        '<p class="hint">Данные этих листов не затёрты. При «Обновить и импортировать» предупреждение попадёт в журнал «Изменения в таблице колледжа».</p>' : '') +
+        '<p class="hint">Данные этих листов не затёрты. При «Обновить и импортировать» предупреждение попадёт в журнал «Изменения в базе расписания».</p>' : '') +
         (notes.length ? '<p><strong>Проверьте листы</strong></p><ul>' + notes.map(function (n) { return '<li>' + esc(net.notes[n]) + '</li>'; }).join('') + '</ul>' : '');
     }
   }
@@ -4201,6 +4292,7 @@
       : (DB.groups.length ? count(DB.groups.length, 'группа', 'группы', 'групп') + (DB.weeks.length ? ', ' + count(DB.weeks.length, 'неделя', 'недели', 'недель') + ' с ' + fmtDayMonth(DB.weeks[0].iso) : '') : '');
     renderStatus();
     renderAccount();
+    if (window.RaspAdminTools) window.RaspAdminTools.render();
     if (who) renderWho();
     if (v === 'lessons') renderLessons();
     else if (v === 'hours') renderHours();
@@ -4526,7 +4618,23 @@
   });
   $('ed-group').addEventListener('change', edLoadSlot);
   $('ed-slot').addEventListener('change', edLoadSlot);
+  ['ed-repeat-until', 'ed-study-only', 'ed-move-date', 'ed-move-slot'].forEach(function (id) { $(id).addEventListener('change', edRepeatPreview); });
+  $('ed-repeat').addEventListener('change', function () {
+    var mode = $('ed-repeat').value;
+    $('ed-repeat-until').value = mode === 'term' && ed.day < half2Of(ed.group) ? Rules.shift(half2Of(ed.group), -1) : Rules.shift(academicEnd(), -1);
+    edRepeatPreview();
+  });
   $('ed-save').addEventListener('click', edSave);
+  $('ed-remove-series').addEventListener('click', function () {
+    if (!ed || !ed.edit || !ed.edit.batch) return;
+    var batch = ed.edit.batch, n = EDITS.list.filter(function (x) { return x.batch === batch; }).length;
+    if (!confirm('Убрать всю серию (' + count(n, 'правка', 'правки', 'правок') + ')?')) return;
+    $('ed-remove-series').disabled = true;
+    Api.remove([], { batch: batch, comment: 'убрана серия повторяющихся правок' }).then(function (removed) {
+      setEdits(EDITS.list.filter(function (x) { return removed.indexOf(x.id) < 0; }), 'ok');
+      HIST.status = 'idle'; recompute(); render(); $('edit-dialog').close(); toast('Серия убрана. Часы и вычитка пересчитаны.');
+    }, function (err) { $('ed-error').textContent = err.message; }).then(function () { $('ed-remove-series').disabled = false; });
+  });
   $('ed-cancel').addEventListener('click', function () { $('edit-dialog').close(); });
   $('ed-remove').addEventListener('click', function () {
     if (ed && ed.edit && confirm('Убрать правку? Пара снова пойдёт по основному расписанию.')) removeEdit(ed.edit.id, function () { $('edit-dialog').close(); });
@@ -4552,15 +4660,16 @@
     if ((t = e.target.closest('[data-bal-put]'))) { t.disabled = true; balPut(t.getAttribute('data-bal-put')); return; }
     if ((t = e.target.closest('[data-bal-cut]'))) { balCut(t.getAttribute('data-bal-cut')); return; }
     if ((t = e.target.closest('[data-bal-csv]'))) { balCsv(t.getAttribute('data-bal-csv')); return; }
-    if (e.target.closest('[data-bal-until-reset]')) { delete bal.until[balanceGroup()]; render(); return; }
-    if ((t = e.target.closest('[data-bal-until-set]'))) { bal.until[balanceGroup()] = t.getAttribute('data-bal-until-set'); render(); return; }
+    if (e.target.closest('[data-bal-until-reset]')) { delete bal.until[balanceKey(balanceGroup())]; render(); return; }
+    if ((t = e.target.closest('[data-bal-until-set]'))) { bal.until[balanceKey(balanceGroup())] = t.getAttribute('data-bal-until-set'); render(); return; }
     if (e.target.closest('[data-bal-retry]')) retry();
   });
   $('balance-body').addEventListener('change', function (e) {
+    if (e.target.id === 'bal-half') { state.half = +e.target.value; bal.open = ''; balMemo = {}; render(); ensureView(); return; }
     if (e.target.id === 'bal-group') { if (e.target.value) { state.group = e.target.value; state.mode = 'group'; state.balAll = false; bal.open = ''; render(); ensureView(); } return; }
     if (e.target.id === 'bal-until') {
       var v = e.target.value;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) bal.until[balanceGroup()] = v; else delete bal.until[balanceGroup()];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) bal.until[balanceKey(balanceGroup())] = v; else delete bal.until[balanceKey(balanceGroup())];
       render();
     }
   });

@@ -14,6 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
   <link rel="stylesheet" href="styles.css?v=4.2">
+  <link rel="stylesheet" href="admin-tools.css?v=5.0">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -265,7 +266,7 @@
               Колонки
             </button>
             <button type="button" class="btn btn-small" id="e-import" hidden>Загрузить таблицу экзаменов</button>
-            <button type="button" class="btn btn-small btn-quiet" id="e-xreset" hidden>Сбросить загруженные</button>
+            <button type="button" class="btn btn-small btn-quiet" id="e-xreset" hidden>Очистить список</button>
             <button type="button" class="btn btn-small" id="e-template">Шаблон</button>
             <button type="button" class="btn btn-small" id="e-export">Экспорт в Excel</button>
           </div>
@@ -340,7 +341,7 @@
         <a href="https://yandex.ru/maps/?text=%D0%BB%D1%8E%D0%B1%D0%B5%D1%80%D0%B5%D1%86%D0%BA%D0%B8%D0%B9%20%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D1%83%D0%BC%20%D0%BA%D0%BE%D1%80%D0%BF%D1%83%D1%81&ll=37.969070%2C55.638299&z=12" target="_blank" rel="noopener noreferrer">Корпуса на карте</a>
         <a href="#admin" id="foot-admin">Вход для администратора</a>
       </p>
-      <p>Расписание берётся из общей Google-таблицы при каждом открытии страницы, замены вносят администраторы техникума. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
+      <p>Расписание и изменения сохраняются в собственной базе сайта. Администратор может менять занятия, учебный план, график и экзамены. Время местное. Если в расписании ошибка, сообщите куратору группы.</p>
       <p class="sysline" id="sysline"></p>
     </footer>
   </div>
@@ -424,8 +425,18 @@
         </div>
         <div class="field"><label for="ed-note">Причина, её видят все</label><input type="text" id="ed-note" name="reason" maxlength="200" placeholder="Например, преподаватель на больничном…" autocomplete="off"></div>
       </div>
+      <fieldset class="repeat-fields">
+        <legend>На какие недели применить</legend>
+        <div class="row2">
+          <div class="field"><label for="ed-repeat">Повторение</label><select id="ed-repeat"><option value="year">Эта и следующие недели учебного года</option><option value="term">До конца этого семестра</option><option value="alternate">Через неделю до конца учебного года</option><option value="once">Только выбранная дата</option></select></div>
+          <div class="field"><label for="ed-repeat-until">Повторять по</label><input type="date" id="ed-repeat-until"></div>
+        </div>
+        <label class="repeat-check"><input type="checkbox" id="ed-study-only" checked> Пропускать праздники, каникулы, сессии и дни практики</label>
+        <p class="hint" id="ed-repeat-preview" aria-live="polite"></p>
+      </fieldset>
       <p class="error" id="ed-error" role="alert"></p>
       <div class="dlg-actions">
+        <button type="button" class="btn btn-quiet btn-danger" id="ed-remove-series" hidden>Убрать всю серию</button>
         <button type="button" class="btn btn-quiet btn-danger" id="ed-remove">Убрать правку</button>
         <span class="spacer"></span>
         <button type="button" class="btn btn-quiet" id="ed-cancel">Закрыть</button>
@@ -554,11 +565,13 @@
   <datalist id="dl-room"></datalist>
   <div class="toast" id="toast" role="status" hidden></div>
 
-  <script src="config.js?v=4.3"></script>
+  <script src="config.js?v=5.0"></script>
   <script src="hours.js?v=4.2"></script>
-  <script src="gas-sim.js?v=4.2"></script>
-  <script src="api.js?v=4.3"></script>
-  <script src="app.js?v=4.3"></script>
+  <script src="gas-sim.js?v=5.0"></script>
+  <script src="api.js?v=5.0"></script>
+  <script src="schedule-rules.js?v=5.0"></script>
+  <script src="admin-tools.js?v=5.0"></script>
+  <script src="app.js?v=5.0"></script>
 </body>
 </html>
 

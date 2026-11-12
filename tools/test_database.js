@@ -25,6 +25,7 @@ const ctx = vm.createContext({
   } }; } }
 });
 vm.runInContext(code('apps-script/Code.gs'), ctx);
+vm.runInContext(code('apps-script/Plan.gs'), ctx);
 assert.equal(ctx.route({action:'table',sheet:'Админы'}).ok, false);
 assert.equal(ctx.route({action:'table',sheet:'История'}).ok, false);
 sheets['Список групп'].push(['Админы']);

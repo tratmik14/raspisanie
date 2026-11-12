@@ -62,6 +62,7 @@
 
   window.RaspApi = {
     mode: mode,
+    planSave: function (record) { return admin('planSave', { record: record }); },
     loadTable: function (name) {
       if (mode !== 'live') return Promise.reject(new Error('База расписания не подключена'));
       return get({ action: 'table', sheet: name }).then(checked).then(function (r) {

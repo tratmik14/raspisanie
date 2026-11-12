@@ -17,11 +17,11 @@
  * Тот же файл сайт запускает у себя в демо-режиме (gas-sim.js), поэтому правила одни и те же.
  */
 
-var VERSION = '2.1';
+var VERSION = '3.0';
 var DATABASE_ID = '1SqSkidIPZ9eFIgfINub6y3kWxBgQB8tAd3JrxXtlxw8';
 var SHEETS = {
   edits: 'Правки', history: 'История', admins: 'Админы', grafik: 'График', snaps: 'Снимки',
-  journal: 'Изменения таблицы', exams: 'Экзамены', examsPrev: 'Экзамены (прошлая версия)'
+  journal: 'Изменения таблицы', exams: 'Экзамены', examsPrev: 'Экзамены (прошлая версия)', plans: 'Планы'
 };
 var EDIT_COLS = ['id', 'created', 'updated', 'author', 'status', 'group', 'date', 'start', 'end', 'kind', 'disc', 'teacher', 'room', 'sub', 'note', 'was', 'link', 'type', 'batch'];
 var EDIT_HEAD = ['ID', 'Создано', 'Изменено', 'Автор', 'Статус', 'Группа', 'Дата', 'Начало', 'Конец', 'Вид', 'Дисциплина', 'Преподаватель', 'Аудитория', 'Подгруппа', 'Комментарий', 'Было (JSON)', 'Связь', 'Тип записи', 'Массовая замена'];
@@ -61,6 +61,7 @@ function route(req) {
     switch (String(req.action || 'ping')) {
       case 'ping': return { ok: true, version: VERSION, admins: readAdmins().filter(isActive).length };
       case 'table': return databaseTable(req);
+      case 'planSave': return planSave(req);
       case 'state': return state(req);
       case 'edits': return listEdits(req);
       case 'history': return history(req);
@@ -340,7 +341,7 @@ function state(req) {
     EXAM_COLS.forEach(function (c) { if (c !== 'author') o[c] = x[c]; });
     return o;
   });
-  return { ok: true, edits: activeEdits(u, names), grafik: grafik, exams: exams, at: Date.now(), full: !!u };
+  return { ok: true, edits: activeEdits(u, names), grafik: grafik, exams: exams, plans: activePlans(), at: Date.now(), full: !!u };
 }
 // One active replacement or cancellation per slot: saving onto such a slot updates it.
 // Added pairs («add») never take a slot, so two pairs can stand at the same time.
@@ -409,6 +410,7 @@ function revert(req) {
     if (!h) return fail('Запись журнала не найдена');
     var comment = 'откат записи журнала от ' + h.time.slice(0, 16).replace('T', ' ');
     if ((h.target || 'edit') === 'grafik') return revertGrafik(user, h, comment);
+    if (h.target === 'plan') return revertPlan(user, h, comment);
     if (h.target === 'exams') return revertExams(user, h, comment);
     var e = readEdits().filter(function (x) { return x.id === h.editId; })[0];
     if (!e) return fail('Правка из этой записи не найдена');

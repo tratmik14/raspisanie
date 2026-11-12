@@ -134,10 +134,13 @@
   var server = null;
   function load() {
     if (server) return server;
-    server = fetch('apps-script/Code.gs?v=4.1', { cache: 'no-cache' }).then(function (r) {
-      if (!r.ok) throw new Error('Не удалось загрузить apps-script/Code.gs для демо-режима');
-      return r.text();
-    }).then(function (code) {
+    server = Promise.all(['Code.gs', 'Plan.gs'].map(function (name) {
+      return fetch('apps-script/' + name + '?v=5.0', { cache: 'no-cache' }).then(function (r) {
+        if (!r.ok) throw new Error('Не удалось загрузить ' + name + ' для демо-режима');
+        return r.text();
+      });
+    })).then(function (parts) {
+      var code = parts.join('\n');
       var make = new Function('SpreadsheetApp', 'CacheService', 'LockService', 'Utilities', 'Session', 'ContentService', 'UrlFetchApp',
         code + '\n;return { doGet: doGet, doPost: doPost, addAdmin: addAdmin, readAdmins: readAdmins };');
       var api = make(SpreadsheetApp, CacheService, LockService, Utilities, Session, ContentService, UrlFetchApp);
