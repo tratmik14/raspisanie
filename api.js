@@ -62,6 +62,7 @@
 
   window.RaspApi = {
     mode: mode,
+    catalogSave: function (record) { return admin('catalogSave', { record: record }); },
     planSave: function (record) { return admin('planSave', { record: record }); },
     loadTable: function (name) {
       if (mode !== 'live') return Promise.reject(new Error('База расписания не подключена'));
@@ -105,5 +106,4 @@
     password: function (old, next) { return admin('password', { old: old, next: next }); }
   };
 })();
-
 

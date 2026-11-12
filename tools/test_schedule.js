@@ -19,16 +19,18 @@ const document = {
   querySelectorAll:()=>[],
   getElementById:id=>elements[id]||(elements[id]={value:'',innerHTML:'',textContent:'',querySelectorAll:()=>[],querySelector:()=>({}),showModal(){this.open=true;}})
 };
-const window = {SCHEDULE_CONFIG:{slots:[['8:30','10:00'],['10:10','11:40'],['12:00','13:30'],['13:40','15:20'],['15:20','16:50']],hoursPerPair:2,holidays:[]},RaspApi:{user:()=>({login:'admin'}),mode:'live'},RaspHours:Hours,RaspRules:Rules};
+const window = {SCHEDULE_CONFIG:{slots:[['8:30','10:00'],['10:10','11:40'],['12:00','13:30'],['13:40','15:20'],['15:20','16:50']],hoursPerPair:2,holidays:[]},RaspApi:{user:()=>({login:'admin'}),mode:'live'},RaspHours:Hours,RaspRules:Rules,RaspCatalog:require('../catalog.js')};
 let source = fs.readFileSync(path.join(root,'app.js'),'utf8');
 const marker='  window.RaspAdminTools.init({';
 assert.ok(source.includes(marker));
 source=source.replace(marker,`  bal={open:'',until:{},wantAll:false}; balMemo={}; PENCIL=''; PLUS='';
-  window.testApp={DB:DB,state:state,planFor:planFor,balanceCompute:balanceCompute,dayCardHTML:dayCardHTML,countFor:countFor,openEditor:openEditor,edLoadSlot:edLoadSlot,
+  window.testApp={DB:DB,state:state,planFor:planFor,balanceCompute:balanceCompute,dayCardHTML:dayCardHTML,countFor:countFor,openEditor:openEditor,edLoadSlot:edLoadSlot,rowsForDay:rowsForDay,catalogDisc:catalogDisc,catalogTeacher:catalogTeacher,
+    setCatalog:function(v){CATALOG=v;},
     setPlan:function(p){PLAN=p;},setOverrides:function(p){PLAN_OVERRIDES=p;},setGrafik:function(g){GRAFIK={data:g};},
     setEdits:function(e){EDITS={list:e,at:0};}};
-  return;
+  window.RaspAdminTools={init:function(ctx){window.testContext=ctx;}};
 `+marker);
+source=source.replace('  // ---------- loading ----------','  return;\n  // ---------- loading ----------');
 vm.runInNewContext(source,{window,localStorage,document,Date,Intl,URLSearchParams,console});
 const a=window.testApp, year=new Date().getMonth()>=6?new Date().getFullYear():new Date().getFullYear()-1;
 const first=year+'-11-10', second=(year+1)+'-03-10';
@@ -41,9 +43,9 @@ a.setEdits([]);
 a.state.half=1; const one=a.balanceCompute('Г-26',sheet);
 a.state.half=2; const two=a.balanceCompute('Г-26',sheet);
 a.state.half=0; const all=a.balanceCompute('Г-26',sheet);
-assert.equal(one.total.plan,8);assert.equal(two.total.plan,10);assert.equal(all.total.plan,18);
-assert.equal(one.total.all,2);assert.equal(two.total.all,2);assert.equal(all.total.all,4);
-assert.equal(all.total.addH,one.total.addH+two.total.addH);
+assert.equal(one.total.plan,8);assert.equal(two.total.plan,10);assert.equal(all.total.plan,one.total.plan);
+assert.equal(one.total.all,2);assert.equal(two.total.all,2);assert.equal(all.total.all,one.total.all);
+assert.equal(all.total.addH,one.total.addH,'half=0 больше не включает весь год в вычитку');
 a.DB.slots=window.SCHEDULE_CONFIG.slots.map((s,i)=>({n:i+1,start:s[0],end:s[1]}));a.DB.slotByStart={};a.DB.slots.forEach(s=>a.DB.slotByStart[s.start]=s);
 const html=a.dayCardHTML(first,1,[],{mode:'group',name:'Г-26'},first);
 assert.equal((html.match(/data-add-start=/g)||[]).length,5,'Все свободные пары доступны даже в пустой день');
@@ -55,5 +57,26 @@ assert.equal(elements['ed-group'].value,'');assert.ok(!elements['ed-group'].inne
 assert.equal(elements['ed-teacher'].value,'Бахаева Г.Р.');assert.equal(elements['ed-save'].disabled,true);
 elements['ed-group'].value='Г-26';a.edLoadSlot();
 assert.equal(elements['ed-teacher'].value,'Бахаева Г.Р.');assert.equal(elements['ed-save'].disabled,false);
-console.log('Расписание: повторение, переносы через границу года, учебный план, оба семестра, год и свободные пары проверены');
+console.log('Расписание: повторение, переносы через границу года, учебный план, отдельные семестры и свободные пары проверены');
 
+sheet.byDay[first][0].room='302'; sheet.byDay[first][0].teacher='А., Б.';
+assert.equal(a.rowsForDay(first,{mode:'room',name:'302'}).length,1);
+assert.equal(a.rowsForDay(first,{mode:'room',name:'303'}).length,0);
+assert.equal(a.rowsForDay(first,{mode:'teacher',name:'Б.'}).length,1);
+a.setCatalog([{type:'subject',name:'Новая физика',aliases:['Физика']},{type:'teacher',name:'В.',aliases:['Б.']}]);
+assert.equal(a.planFor('Г-26').subjects[0].name,'Новая физика');
+assert.equal(a.planFor('Г-26').subjects[0].teacher,'В.');
+assert.equal(a.catalogDisc('ОП.03 Физика'),'ОП.03 Новая физика');
+assert.equal(a.catalogTeacher('А., Б.'),'А., В.');
+console.log('Аудитории, отдельные преподаватели, переименование в плане и кодах предметов проверены');
+
+a.setCatalog([]);
+const context=window.testContext;
+const weekRows=Array.from({length:30},(_,i)=>({group:'Г-26',date:Rules.shift(first,Math.floor(i/5)),start:['8:30','10:10','12:00','13:40','15:20'][i%5],end:'16:50',disc:'Физика',teacher:'А.',room:'302',kind:'add',sub:0}));
+assert.equal(context.expand(weekRows,'once',year+'-12-10',true).length,30);
+const repeat=context.expand(weekRows.slice(0,5),'year',Rules.shift(first,14),false);
+assert.equal(repeat.length,15);assert.equal(repeat[12].date,first);assert.equal(repeat[14].date,Rules.shift(first,14));
+assert.equal(context.expand(weekRows.slice(0,1),'alternate',Rules.shift(first,14),false).length,2);
+const Cat=require('../catalog.js');
+assert.deepEqual(Cat.splitTeachers('Гришакова Т.Н. Куликова О.В'),['Гришакова Т.Н.','Куликова О.В']);
+console.log('Пакетные пары на неделю, повторение каждого слота и несколько преподавателей в записи проверены');

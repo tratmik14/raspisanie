@@ -8,6 +8,15 @@
 .repeat-fields .hint { margin: .75rem 0 0; }
 .exam-edit { vertical-align: middle; }
 .exam-edit svg { display: block; }
+.multi-dialog { width: min(1000px, calc(100vw - 32px)); }
+.multi-day { min-width: 0; border: 0; border-top: 1px solid var(--line-strong); padding: 1rem 0; margin: 1rem 0; }
+.multi-day legend { font-weight: 700; padding-right: .5rem; }
+.multi-row { display: grid; grid-template-columns: 105px minmax(0,2fr) minmax(0,1.4fr) minmax(70px,.7fr); align-items: center; gap: .6rem; padding: .65rem 0; }
+.multi-row input:not([type=checkbox]) { width: 100%; min-width: 0; }
+.multi-check { display: flex; gap: .5rem; align-items: center; }
+.multi-busy { grid-column: 2 / -1; margin: 0; }
+.multi-busy:empty { display: none; }
+#multi-conflict-field[hidden] { display: none; }
+@media (max-width: 650px) { .multi-row { grid-template-columns: 90px minmax(0,1fr); } .multi-row input[data-multi-teacher], .multi-row input[data-multi-room], .multi-busy { grid-column: 2; } .multi-dialog { width: calc(100vw - 24px); } }
 #plan-dialog input[type="number"], #exam-edit-dialog input[type="time"] { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--fg); font: inherit; font-weight: 600; box-sizing: border-box; }
 @media (max-width: 560px) { .repeat-fields { padding: .75rem; } .admin-tools { align-items: stretch; } .admin-tools .btn { width: 100%; } }
-

@@ -29,7 +29,25 @@ async function run(){
   assert.equal((await call({action:'revert',token,id:h.items[0].id})).ok,true);
   assert.equal((await call({action:'state'})).plans.length,0);
   assert.equal((await call({action:'table',sheet:'Планы'})).ok,false);
+  assert.equal((await call({action:'catalogSave',record:{type:'teacher',name:'Тест'}})).ok,false);
+  let saved=await call({action:'catalogSave',token,record:{type:'teacher',name:'Тест А.А.'}}); assert.equal(saved.ok,true);
+  const catalogId=saved.record.id;
+  saved=await call({action:'catalogSave',token,record:{id:catalogId,type:'teacher',from:'Тест А.А.',name:'Тест Б.Б.'}});assert.equal(saved.ok,true);
+  assert.deepEqual(Array.from(saved.record.aliases),['Тест А.А.']);
+  saved=await call({action:'catalogSave',token,record:{id:catalogId,type:'teacher',from:'Тест Б.Б.',name:'Тест В.В.'}});assert.equal(saved.ok,true);
+  assert.ok(saved.record.aliases.includes('Тест А.А.'));assert.ok(saved.record.aliases.includes('Тест Б.Б.'));
+  assert.equal((await call({action:'catalogSave',token,record:{type:'teacher',name:'Тест А.А.'}})).ok,false);
+  assert.equal((await call({action:'catalogSave',token,record:{type:'subject',name:'Тест А.А.'}})).ok,true);
+  assert.equal((await call({action:'catalogSave',token,record:{type:'teacher',name:'А., Б.'}})).ok,false);
+  const catHistory=await call({action:'history',token});
+  const rename=catHistory.items.find(x=>x.target==='catalog' && JSON.parse(x.after||'{}').name==='Тест В.В.');
+  assert.equal((await call({action:'revert',token,id:rename.id})).ok,true);
+  assert.equal((await call({action:'state'})).catalog.find(x=>x.id===catalogId).name,'Тест Б.Б.');
+  assert.equal((await call({action:'table',sheet:'Справочники'})).ok,false);
+  const edits=Array.from({length:30},(_,i)=>({group:'ИС2-25',date:'2026-11-'+(16+Math.floor(i/5)),start:['8:30','10:10','12:00','13:40','15:20'][i%5],end:'16:50',disc:'Предмет',teacher:'Тест Б.Б.',room:'302',kind:'add',sub:0}));
+  const bulk=await call({action:'save',token,edits,batch:'rtestweek'});assert.equal(bulk.ok,true);assert.equal(bulk.edits.length,30);
+  assert.equal((await call({action:'state'})).edits.length,30);
+  console.log('Справочники: авторизация, добавление, цепочка переименований, дубликаты, публичное чтение и откат; пакет 30 пар проверены');
   console.log('Сервер: авторизация, сохранение плана, проверка полей, публичное чтение и оба вида отката проверены');
 }
 run().catch(e=>{console.error(e);process.exitCode=1;});
-

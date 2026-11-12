@@ -41,3 +41,46 @@ function revertPlan(user, h, comment) {
   return { ok: true };
 }
 
+// Названия хранятся вместе с прежними вариантами: существующие пары и планы
+// остаются связаны с одним предметом или преподавателем после переименования.
+var CATALOG_COLS = ['id', 'type', 'name', 'aliases', 'updated', 'author', 'status'];
+var CATALOG_HEAD = ['ID', 'Тип', 'Название', 'Прежние названия (JSON)', 'Обновлено', 'Автор', 'Статус'];
+function catalogKey(s) { return str(s, 300).toLowerCase(); }
+function publicCatalog(r) { return { id: r.id, type: r.type, name: r.name, aliases: JSON.parse(r.aliases || '[]'), updated: r.updated }; }
+function activeCatalog() { return readRows(SHEETS.catalog, CATALOG_COLS, CATALOG_HEAD).filter(function (r) { return r.status === 'active'; }).map(publicCatalog); }
+function catalogSave(req) {
+  var user = needSession(req), input = req.record || {};
+  var type = str(input.type, 20), name = str(input.name, 300), from = str(input.from, 300), id = str(input.id, 40);
+  if (['teacher', 'subject'].indexOf(type) < 0 || !name) return fail('Укажите тип и название.');
+  if (type === 'teacher' && /[,;]/.test(name)) return fail('Добавляйте каждого преподавателя отдельно, без запятых и точек с запятой.');
+  return withLock(function () {
+    var all = readRows(SHEETS.catalog, CATALOG_COLS, CATALOG_HEAD);
+    var cur = all.filter(function (r) { return r.status === 'active' && r.type === type && (id ? r.id === id : from && [r.name].concat(JSON.parse(r.aliases || '[]')).some(function (n) { return catalogKey(n) === catalogKey(from); })); })[0];
+    if (id && !cur) return fail('Запись справочника не найдена. Обновите страницу.');
+    var aliases = cur ? JSON.parse(cur.aliases || '[]').concat(cur.name) : [];
+    if (from) aliases.push(from);
+    aliases = aliases.filter(function (v, i, a) { return v && catalogKey(v) !== catalogKey(name) && a.indexOf(v) === i; });
+    var claims = [name].concat(aliases).map(catalogKey);
+    if (all.some(function (r) { return r.status === 'active' && r.type === type && (!cur || r.id !== cur.id) && [r.name].concat(JSON.parse(r.aliases || '[]')).some(function (v) { return claims.indexOf(catalogKey(v)) >= 0; }); })) return fail('Такое название уже есть в справочнике. Выберите существующую запись.');
+    if (aliases.length > 100) return fail('Слишком много прежних названий.');
+    var before = cur ? JSON.stringify(publicCatalog(cur)) : '';
+    var r = { id: cur ? cur.id : newId('c'), type: type, name: name, aliases: JSON.stringify(aliases), updated: nowIso(), author: user.login, status: 'active' };
+    writeRow(SHEETS.catalog, CATALOG_COLS, CATALOG_HEAD, r, cur ? cur._row : null);
+    appendRows(SHEETS.history, HISTORY_COLS, HISTORY_HEAD, [historyEntry(user, { action: before ? 'update' : 'create', editId: r.id, before: before, after: JSON.stringify(publicCatalog(r)), comment: from ? 'переименована запись справочника' : 'добавлена запись справочника', target: 'catalog' })]);
+    return { ok: true, record: publicCatalog(r) };
+  });
+}
+function revertCatalog(user, h, comment) {
+  var cur = readRows(SHEETS.catalog, CATALOG_COLS, CATALOG_HEAD).filter(function (r) { return r.id === h.editId; })[0];
+  if (!cur) return fail('Запись справочника не найдена.');
+  var before = cur.status === 'active' ? JSON.stringify(publicCatalog(cur)) : '';
+  if (h.before) {
+    var prev = JSON.parse(h.before);
+    var aliases = (prev.aliases || []).concat(JSON.parse(cur.aliases || '[]'), cur.name).filter(function (v, i, all) { return catalogKey(v) !== catalogKey(prev.name) && all.indexOf(v) === i; });
+    cur.type = prev.type; cur.name = prev.name; cur.aliases = JSON.stringify(aliases); cur.status = 'active';
+  } else cur.status = 'deleted';
+  cur.updated = nowIso(); cur.author = user.login;
+  writeRow(SHEETS.catalog, CATALOG_COLS, CATALOG_HEAD, cur, cur._row);
+  appendRows(SHEETS.history, HISTORY_COLS, HISTORY_HEAD, [historyEntry(user, { action: 'revert', editId: cur.id, before: before, after: cur.status === 'active' ? JSON.stringify(publicCatalog(cur)) : '', comment: comment, target: 'catalog' })]);
+  return { ok: true };
+}

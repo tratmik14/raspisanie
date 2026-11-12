@@ -16,7 +16,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '5.1';
+  var SITE_VERSION = '6.0';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -26,7 +26,7 @@
   var SOURCES_KEY = 'raspisanie.sources.v2:' + DB_KEY;
   var VIEWS = ['lessons', 'hours', 'balance', 'grafik', 'exams', 'history'];
   var VIEW_TITLES = {
-    lessons: ['Расписание занятий', 'Пары на каждую неделю семестра: для группы или для преподавателя.'],
+    lessons: ['Расписание занятий', 'Пары по группам, преподавателям и аудиториям на каждый день и неделю.'],
     hours: ['Часы по предметам', 'Сколько часов по плану, сколько уже проведено и сколько осталось.'],
     balance: ['Вычитка часов', 'Сколько пар не хватает или лишние до конца семестра. Пересчитывается сразу, как только пару добавили, отменили или перенесли.'],
     grafik: ['График учебного процесса', 'Теория, практика, сессии и каникулы каждой группы по неделям учебного года.'],
@@ -49,7 +49,25 @@
   var Api = window.RaspApi;
   var Hours = window.RaspHours;
   var Rules = window.RaspRules;
-  var PLAN_OVERRIDES = [];
+  var PLAN_OVERRIDES = [], CATALOG = [];
+  function catalogName(type, value) { return window.RaspCatalog.name(CATALOG, type, value); }
+  function catalogTeacher(value) { return window.RaspCatalog.teachers(CATALOG, value); }
+  function catalogDisc(value) {
+    var dc = splitCode(value), renamed = catalogName('subject', dc.name);
+    return renamed === dc.name ? value : (dc.code ? dc.code + ' ' : '') + renamed;
+  }
+  function catalogNames(type) {
+    var names = CATALOG.filter(function (r) { return r.type === type; }).map(function (r) { return r.name; });
+    Object.keys(DB.sheets).forEach(function (g) { DB.sheets[g].rows.forEach(function (r) { names = names.concat(type === 'teacher' ? splitTeachers(r.teacher) : [splitCode(r.disc).name]); }); });
+    DB.groups.forEach(function (g) { var p = planFor(g); if (p) p.subjects.forEach(function (r) { names = names.concat(type === 'teacher' ? (String(r.teacher || '').match(/[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.?/g) || []) : [splitCode(r.name).name]); }); });
+    EX.records.forEach(function (r) { names = names.concat(type === 'teacher' ? splitTeachers(r.teacher) : [splitCode(r.discipline).name]); });
+    return uniq(names.map(function (v) { return catalogName(type, v); })).sort(cmpRu);
+  }
+  function refreshSuggestions() {
+    datalistFill('dl-disc', catalogNames('subject'));
+    datalistFill('dl-teacher', catalogNames('teacher'));
+    datalistFill('dl-room', DB.rooms || []);
+  }
   function exDefaults() {
     return { group: [], teacher: [], disc: [], type: 'exam', status: 'all', half: 'all', from: '', to: '', search: '', ordering: '', page: 1, pageSize: 20, rpage: 1 };
   }
@@ -125,7 +143,7 @@
   function normTime(t) { var p = String(t).split(':'); return (+p[0]) + ':' + pad(+p[1] || 0); }
   function cmpRu(a, b) { return String(a).localeCompare(String(b), 'ru', { numeric: true }); }
   function uniq(arr) { return arr.filter(function (v, i) { return v && arr.indexOf(v) === i; }); }
-  function splitTeachers(s) { return String(s || '').split(/\s*[,;]\s*/).filter(Boolean); }
+  function splitTeachers(s) { return window.RaspCatalog.splitTeachers(s); }
   function splitCode(disc) {
     var m = /^([А-ЯЁA-Z]{2,5}[а-яё]?\.?\s?\d{2}(?:\.\d{2})?)\.?\s+(.+)$/.exec(disc);
     return m ? { code: m[1], name: m[2] } : { code: '', name: disc };
@@ -548,6 +566,7 @@
       return !!ds && ds.some(function (d) { return Math.abs(d - t) <= 30 * DAY; });
     }
     EXS.records.concat(EXF.records).filter(function (r) { return !overridden(r); }).concat(EXI.records).forEach(function (r) {
+      r = Object.assign({}, r, { discipline: catalogDisc(r.discipline), teacher: catalogTeacher(r.teacher) });
       var k = [r.group, r.discipline, r.date, r.time].join('|').toLowerCase();
       if (!seen[k]) { seen[k] = true; records.push(r); }
     });
@@ -567,6 +586,7 @@
   }
   // edits, schedule corrections and imported exams from the server (state), kept for offline visits
   function setState(st, status) {
+    CATALOG = st.catalog || [];
     PLAN_OVERRIDES = st.plans || [];
     GOV = { list: st.grafik || [], map: {} };
     GOV.list.forEach(function (g) { (GOV.map[g.group] || (GOV.map[g.group] = {}))[g.week] = g; });
@@ -580,7 +600,7 @@
     setEdits(st.edits || [], status);
   }
   function persistState() {
-    try { localStorage.setItem(STATE_KEY, JSON.stringify({ t: Date.now(), state: { edits: EDITS.list, grafik: GOV.list, exams: EXI.raw, plans: PLAN_OVERRIDES } })); }
+    try { localStorage.setItem(STATE_KEY, JSON.stringify({ t: Date.now(), state: { edits: EDITS.list, grafik: GOV.list, exams: EXI.raw, plans: PLAN_OVERRIDES, catalog: CATALOG } })); }
     catch (e) { /* storage unavailable */ }
   }
   function setGrafik(items) {
@@ -614,17 +634,17 @@
     var key = resolveKey(group, PLAN.order, function (k) { return PLAN.groups[k].course; });
     var base = key ? PLAN.groups[key] : null;
     var overrides = PLAN_OVERRIDES.filter(function (r) { return r.group === group; });
-    if (!overrides.length) return base;
+    if (!base && !overrides.length) return null;
     var subjects = base ? base.subjects.map(function (x) { return Object.assign({}, x); }) : [];
     overrides.forEach(function (r) {
-      var i = subjects.findIndex(function (x) { return x.name === r.name; });
+      var i = subjects.findIndex(function (x) { return catalogDisc(x.name) === catalogDisc(r.name); });
       var next = Object.assign({}, i >= 0 ? subjects[i] : {}, {
         name: r.name, code: Hours.codeOf(r.name).code, s1: +r.s1, s2: +r.s2,
         year: +r.s1 + +r.s2, teacher: r.teacher, form: [r.f1 || '', r.f2 || '']
       });
       if (i >= 0) subjects[i] = next; else subjects.push(next);
     });
-    return Object.assign({}, base || { group: group, title: '', course: courseOf(group) }, { subjects: subjects });
+    return Object.assign({}, base || { group: group, title: '', course: courseOf(group) }, { subjects: subjects.map(function (r) { return Object.assign({}, r, { name: catalogDisc(r.name), teacher: catalogTeacher(r.teacher) }); }) });
   }
   // The PDF schedule of a group with the admins' corrections laid over it («.» keeps the PDF day).
   function grafikFor(group) {
@@ -760,7 +780,10 @@
       .sort(function (a, b) { return minutesOf(a.start) - minutesOf(b.start); });
     DB.slotByStart = {};
     DB.slots.forEach(function (s, i) { s.n = i + 1; DB.slotByStart[s.start] = s; });
-    DB.teachers = Object.keys(teacherSet).sort(cmpRu);
+    DB.teachers = catalogNames('teacher');
+    DB.rooms = uniq([].concat.apply([], Object.keys(DB.sheets).map(function (g) { return DB.sheets[g].rows.map(function (r) { return r.room; }); }))).sort(cmpRu);
+    if (state) { state.teacher = catalogTeacher(state.teacher); state.exTeacher = catalogTeacher(state.exTeacher); }
+    rebuildExams();
   }
 
   // the lessons of one sheet, week by week, before any admin edit
@@ -818,7 +841,7 @@
       }
       delete sheet.prev;
     }
-    sheet.rows = applyEdits(group, rows);
+    sheet.rows = applyEdits(group, rows).map(function (r) { return Object.assign({}, r, { disc: catalogDisc(r.disc), teacher: catalogTeacher(r.teacher) }); });
     sheet.byDay = {};
     sheet.rows.forEach(function (r) { (sheet.byDay[r.day] || (sheet.byDay[r.day] = [])).push(r); });
   }
@@ -826,20 +849,20 @@
   // ---------- state and the address bar (ТЗ БП 1.5: filters live in query parameters) ----------
   // span: 'week' | 'today' | 'tomorrow' | 'day' (a date from the calendar, in state.day)
   // exPage: 'list' | 'book' (зачётка) | 'teacher'
-  var state = { view: 'lessons', mode: 'group', group: '', teacher: '', week: '', half: null, span: 'week', day: '', exPage: 'list', bookGroup: '', bookHalf: 0, exTeacher: '', balAll: false };
+  var state = { view: 'lessons', mode: 'group', group: '', teacher: '', room: '', week: '', half: null, span: 'week', day: '', exPage: 'list', bookGroup: '', bookHalf: 0, exTeacher: '', balAll: false };
   var ex = exDefaults();
   var pendingHash = ''; // an old #group link that waits for the group list
   var wantLogin = false; // #admin opens the login right away
   try {
     var saved = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
     if (saved && typeof saved === 'object') {
-      ['mode', 'group', 'teacher'].forEach(function (k) { if (typeof saved[k] === 'string') state[k] = saved[k]; });
+      ['mode', 'group', 'teacher', 'room'].forEach(function (k) { if (typeof saved[k] === 'string') state[k] = saved[k]; });
       if (saved.span === 'today' || saved.span === 'tomorrow') state.span = saved.span;
     }
   } catch (e) { /* storage unavailable */ }
-  if (state.mode !== 'teacher') state.mode = 'group';
+  if (['teacher', 'room'].indexOf(state.mode) < 0) state.mode = 'group';
   function savePrefs() {
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: state.mode, group: state.group, teacher: state.teacher, span: state.span === 'day' ? 'week' : state.span })); }
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify({ mode: state.mode, group: state.group, teacher: state.teacher, room: state.room, span: state.span === 'day' ? 'week' : state.span })); }
     catch (e) { /* storage unavailable */ }
   }
   // Several values of one filter are repeated parameters (?group=ИС2-25&group=ГД-26):
@@ -895,7 +918,8 @@
       if (state.exPage === 'teacher') state.exTeacher = p.get('for') || '';
     } else {
       state.view = VIEWS.indexOf(v) >= 0 ? v : 'lessons';
-      if (p.get('teacher')) { state.mode = 'teacher'; state.teacher = p.get('teacher'); }
+      if (p.get('room')) { state.mode = 'room'; state.room = p.get('room'); }
+      else if (p.get('teacher')) { state.mode = 'teacher'; state.teacher = p.get('teacher'); }
       else if (p.get('group')) { state.mode = 'group'; state.group = p.get('group'); }
       // a link to a week opens that week, whatever the visitor chose last time
       if (/^\d{4}-\d{2}-\d{2}$/.test(p.get('week') || '')) { state.week = p.get('week'); state.span = 'week'; }
@@ -935,7 +959,8 @@
     } else {
       if (state.view !== 'lessons') p.set('view', state.view);
       if (state.view !== 'grafik' && state.view !== 'history') {
-        if (state.mode === 'teacher' && state.teacher) p.set('teacher', state.teacher);
+        if (state.mode === 'room' && state.room) p.set('room', state.room);
+        else if (state.mode === 'teacher' && state.teacher) p.set('teacher', state.teacher);
         else if (state.mode === 'group' && state.group) p.set('group', state.group);
       }
       if (state.view === 'lessons') {
@@ -956,8 +981,38 @@
   window.RaspAdminTools.init({
     user: isAdmin, groups: function () { return DB.groups; }, group: function () { return state.group || DB.groups[0] || ''; },
     plan: planFor, exams: function () { return EX.records; }, api: Api,
-    refresh: function () { HIST.status = 'idle'; return loadEdits().then(function () { recompute(); render(); }); },
-    toast: toast, esc: esc
+    refresh: function () { HIST.status = 'idle'; return loadEdits().then(function () { recompute(); fillOptions(); refreshSuggestions(); render(); }); },
+    toast: toast, esc: esc,
+    catalogNames: catalogNames, catalog: function () { return CATALOG; }, suggestions: refreshSuggestions,
+    prepare: function () { ensureAll(); refreshSuggestions(); },
+    selection: selection, slots: function () { return DB.slots; },
+    day: function () { return spanDay() || state.week || currentWeekIso(); },
+    shift: Rules.shift, monday: function (d) { return isoOfUtc(mondayOfUtc(utcOfIso(d))); },
+    fmt: fmtDayMonth, weekday: function (d) { return cap(WEEKDAYS[isoToDate(d).getDay()]); },
+    until: function () { return Rules.shift(academicEnd(), -1); },
+    ready: function (g) { return (isLive(g) ? Promise.resolve() : loadSheet(g)).then(function () { recompute(); if (!isLive(g)) throw new Error('Не удалось загрузить расписание группы. Повторите попытку.'); }); },
+    rows: slotRows,
+    expand: function (list, mode, until, study) {
+      var out = [];
+      list.forEach(function (r) {
+        var end = mode === 'term' && r.date < half2Of(r.group) ? Rules.shift(half2Of(r.group), -1) : until;
+        var dates = mode === 'once' ? [r.date] : Rules.dates(r.date, end, mode === 'alternate' ? 14 : 7, function (d) {
+          if (!study) return true;
+          var gw = grafikWeek(r.group, isoOfUtc(mondayOfUtc(utcOfIso(d)))), wd = (isoToDate(d).getDay() + 6) % 7;
+          return !isHoliday(d) && wd !== 6 && (!GRAFIK.data || !!gw) && (!gw || wd >= 5 || gw.days.charAt(wd) === 'T');
+        });
+        out = out.concat(Rules.expand([r], dates, r.date, function (next) {
+          var existing = EDITS.list.find(function (x) { return x.kind === 'add' && x.group === next.group && x.date === next.date && normTime(x.start) === next.start && +x.sub === +next.sub && catalogDisc(x.disc) === next.disc && catalogTeacher(x.teacher) === next.teacher && x.room === next.room; });
+          return { id: existing ? existing.id : '', was: '' };
+        }));
+      });
+      return out;
+    },
+    saveMany: function (list, batch) {
+      var saved = 0, chain = Promise.resolve();
+      for (var i = 0; i < list.length; i += 100) (function (chunk) { chain = chain.then(function () { return Api.save(chunk, {batch: batch, comment: 'добавлены пары на день или неделю'}).then(function (items) { saved += items.length; mergeEdits(items); }); }); })(list.slice(i, i + 100));
+      return chain.catch(function (err) { err.message += saved ? ' Уже сохранено записей: ' + saved + '. Повторное сохранение обновит эти пары.' : ''; throw err; }).finally(function () { HIST.status = 'idle'; recompute(); fillOptions(); render(); });
+    }
   });
   // ---------- loading ----------
   function isLive(group) { return !!DB.sheets[group] && (DB.sheets[group].source === 'live' || !!DB.sheets[group].fresh); }
@@ -1069,7 +1124,7 @@
     }
     if (state.view === 'balance') { ensureGroups(balanceNeeds()); return; }
     if (state.view !== 'lessons' && state.view !== 'hours') return;
-    if (state.mode === 'teacher') ensureAll();
+    if (state.mode === 'teacher' || state.mode === 'room') ensureAll();
     else if (state.group) ensureGroup(state.group);
   }
   function loadPlan() {
@@ -1211,6 +1266,7 @@
         return '<option value="' + esc(g) + '">' + esc(g) + '</option>';
       }).join('') + '</optgroup>';
     }).join('');
+    $('room').innerHTML = optionsHTML('Выберите аудиторию', DB.rooms || [], state.room);
     $('teacher').innerHTML = optionsHTML(net.bulk ? 'Загружаю список…' : 'Выберите преподавателя', DB.teachers, state.teacher);
     $('picker-body').innerHTML = courses.map(function (c) {
       return '<div class="course"><h3 class="eyebrow">' + esc(c.label) + '</h3><div class="chips">' + c.groups.map(function (g) {
@@ -1233,6 +1289,7 @@
     return weeks.length - 1;
   }
   function selection() {
+    if (state.mode === 'room') return state.room ? { mode: 'room', name: state.room } : null;
     if (state.mode === 'teacher') return state.teacher ? { mode: 'teacher', name: state.teacher } : null;
     return state.group ? { mode: 'group', name: state.group } : null;
   }
@@ -1245,7 +1302,7 @@
       return out;
     }
     Object.keys(DB.sheets).forEach(function (g) {
-      (DB.sheets[g].byDay[iso] || []).forEach(function (r) { if (r.teacher === sel.name && (!r.ghost || withGhosts)) out.push(r); });
+      (DB.sheets[g].byDay[iso] || []).forEach(function (r) { if ((sel.mode === 'room' ? r.room === sel.name : splitTeachers(r.teacher).indexOf(sel.name) >= 0) && (!r.ghost || withGhosts)) out.push(r); });
     });
     return out;
   }
@@ -1311,8 +1368,8 @@
   }
   function entryHTML(e, sel) {
     var meta = [], cls = 'entry', flag = '', note = '';
-    if (sel.mode === 'teacher') e.groups.sort(cmpRu).forEach(function (g) { meta.push('<span class="grp" translate="no">' + esc(g) + '</span>'); });
-    else if (e.teacher) meta.push('<span>' + esc(e.teacher) + '</span>');
+    if (sel.mode !== 'group') e.groups.sort(cmpRu).forEach(function (g) { meta.push('<span class="grp" translate="no">' + esc(g) + '</span>'); });
+    if (sel.mode !== 'teacher' && e.teacher) meta.push('<span>' + esc(e.teacher) + '</span>');
     if (e.room) meta.push('<span>' + esc(roomLabel(e.room)) + '</span>');
     if (e.sub) meta.push('<span class="tag">' + e.sub + ' подгруппа</span>');
     if (e.par) meta.push('<span class="tag tag-par">' + (e.par === 1 ? 'по чётным' : 'по нечётным') + '</span>');
@@ -1349,8 +1406,9 @@
     var admin = isAdmin(), canAdd = admin;
     var head = '<header class="dhead"><span class="dname">' + WEEKDAYS_MON[wd] + '</span><span class="ddate">' + fmtDayMonth(dayIso) + '</span>' +
       (rel ? '<span class="rel">' + rel + '</span>' : '') + '</header>';
+    var addDayBtn = canAdd ? '<button type="button" class="btn btn-quiet btn-small" data-multi-day="' + dayIso + '">Заполнить день</button>' : '';
     var addBtn = canAdd ? '<button type="button" class="btn btn-quiet btn-small add-pair" data-add-day="' + dayIso + '">' + PLUS + 'Добавить пару</button>' : '';
-    if (!rows.length && !DB.slots.length) return '<article class="dcard' + cls + '">' + head + '<p class="dempty">Пар нет</p>' + addBtn + '</article>';
+    if (!rows.length && !DB.slots.length) return '<article class="dcard' + cls + '">' + head + '<p class="dempty">Пар нет</p>' + addBtn + addDayBtn + '</article>';
     var byPair = {};
     rows.forEach(function (r) { var n = slotOf(r).n; (byPair[n] || (byPair[n] = [])).push(r); });
     var nums = Object.keys(byPair).map(Number).sort(function (a, b) { return a - b; });
@@ -1370,7 +1428,7 @@
         pairEntries(byPair[p], sel).map(function (e) { return entryHTML(e, sel); }).join('') + '</div>' +
         (admin ? '<button type="button" class="pair-edit" data-edit-day="' + dayIso + '" data-edit-start="' + esc(start) + '" aria-label="Изменить ' + p + ' пару, ' + esc(WEEKDAYS_MON[wd].toLowerCase()) + '">' + PENCIL + '</button>' : '') + '</li>');
     }
-    return '<article class="dcard' + cls + '">' + head + '<ol class="pairs">' + items.join('') + '</ol>' + addBtn + '</article>';
+    return '<article class="dcard' + cls + '">' + head + '<ol class="pairs">' + items.join('') + '</ol>' + addBtn + addDayBtn + '</article>';
   }
 
   // ---------- the academic year of a group, week by week (PDF schedule) ----------
@@ -1433,7 +1491,7 @@
   function renderNow(sel, today) {
     var el = $('now'), weeks = DB.weeks;
     if (!weeks.length || today < weeks[0].iso || today > isoOfUtc(weeks[weeks.length - 1].ms + 6 * DAY)) { el.hidden = true; return; }
-    var who = sel.mode === 'group' ? 'у ' + sel.name : 'у преподавателя ' + sel.name;
+    var who = sel.mode === 'group' ? 'у ' + sel.name : sel.mode === 'room' ? 'в аудитории ' + sel.name : 'у преподавателя ' + sel.name;
     var rows = rowsForDay(today, sel);
     var lines = [];
     if (!rows.length) {
@@ -1484,7 +1542,7 @@
       if (it.retake || TYPE_KEY[it.rec.type] !== 'exam') return false;
       var d = daysBetween(today, it.date);
       if (d < 0 || d > 3) return false;
-      return sel.mode === 'group' ? it.rec.group === sel.name : splitTeachers(it.rec.teacher).indexOf(sel.name) >= 0;
+      return sel.mode === 'group' ? it.rec.group === sel.name : sel.mode === 'room' ? it.rec.room === sel.name : splitTeachers(it.rec.teacher).indexOf(sel.name) >= 0;
     }).sort(byWhen);
     if (!soon.length) { el.hidden = true; return; }
     el.innerHTML = '<span class="eyebrow">Напоминание об аттестации</span>' + soon.slice(0, 3).map(function (it) {
@@ -1531,7 +1589,7 @@
     }
     if (!sel) {
       if (state.mode === 'group') $('picker').hidden = false;
-      else showEmpty(net.bulk ? 'Собираю список преподавателей: загружено ' + net.bulk.done + ' из ' + net.bulk.total + ' групп…' : 'Выберите преподавателя, чтобы увидеть его пары.');
+      else showEmpty(state.mode === 'room' ? (net.bulk ? 'Собираю список аудиторий…' : 'Выберите аудиторию, чтобы увидеть её пары.') : net.bulk ? 'Собираю список преподавателей: загружено ' + net.bulk.done + ' из ' + net.bulk.total + ' групп…' : 'Выберите преподавателя, чтобы увидеть его пары.');
       return;
     }
     renderReminder(sel, today);
@@ -1569,7 +1627,7 @@
       var other = findWeekWithLessons(sel, wi);
       var why = 'На эту неделю пар нет: расписание ещё не заполнено или идёт практика.';
       if (gw && !/T/.test(gw.days)) why = 'На этой неделе у группы ' + weekTypeText(gw.days) + ' по графику учебного процесса, пар в расписании нет.';
-      showEmpty(sel.mode === 'teacher' && net.bulk ? 'Загружаю расписание групп: ' + net.bulk.done + ' из ' + net.bulk.total + '…' : why,
+      showEmpty(sel.mode !== 'group' && net.bulk ? 'Загружаю расписание групп: ' + net.bulk.done + ' из ' + net.bulk.total + '…' : why,
         other >= 0 ? 'Показать ' + fmtRange(weeks[other].iso, isoOfUtc(weeks[other].ms + 5 * DAY)) : '', other >= 0 ? 'week:' + weeks[other].iso : '');
     }
     renderNow(sel, today);
@@ -1756,14 +1814,14 @@
   // ---------- hours view ----------
   function nowMinutes() { var t = new Date(); return t.getHours() * 60 + t.getMinutes(); }
   function currentHalf(group) { return todayISO() < half2Of(group) ? 1 : 2; }
-  function balanceHalf(group) { return state.half == null ? currentHalf(group) : state.half; }
+  function balanceHalf(group) { return state.half === 1 || state.half === 2 ? state.half : currentHalf(group); }
   function balanceKey(group) { return group + '|' + balanceHalf(group); }
   function academicEnd() { return (+acadStart().slice(0, 4) + 1) + '-08-01'; }
   function inAcademicPeriod(day, group, half) { return Rules.inPeriod(day, acadStart(), half2Of(group), academicEnd(), half); }
   function countFor(group, teacher) {
     var sheet = DB.sheets[group];
     if (!sheet) return null;
-    var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && inAcademicPeriod(r.day, group, 0) && (!teacher || r.teacher === teacher); });
+    var rows = sheet.rows.filter(function (r) { return !r.ghost && r.disc && inAcademicPeriod(r.day, group, 0) && (!teacher || splitTeachers(r.teacher).indexOf(teacher) >= 0); });
     return Hours.countHours(rows, { today: todayISO(), nowMin: nowMinutes(), half2: half2Of(group), hoursPerPair: CFG.hoursPerPair || 2 });
   }
   // Share of the theory days of the half that are already behind us, from the PDF schedule.
@@ -2253,6 +2311,7 @@
       '<th scope="col">Вычитать до</th><th scope="col">Таблица заполнена до</th><th scope="col"><span class="sr-only">Действие</span></th></tr></thead><tbody>' + body.join('') + '</tbody></table></div></section>';
   }
   function renderBalance() {
+    state.half = balanceHalf(balanceGroup() || DB.groups[0] || '');
     balMemo = {};
     var box = $('balance-body');
     if (!DB.groups.length) { box.innerHTML = '<section class="empty"><p>' + (net.listFailed ? 'Не удалось загрузить список групп.' : 'Загружаю список групп…') + '</p></section>'; return; }
@@ -2261,7 +2320,7 @@
     var opts = '<option value="">Выберите группу</option>' + DB.groups.map(function (g) { return '<option value="' + esc(g) + '"' + (g === cur ? ' selected' : '') + '>' + esc(g) + (isUrgent(g) ? ' — горит' : '') + '</option>'; }).join('');
     var html = '<section class="filters bal-filters" aria-label="Группа">' +
       '<div class="field"><label for="bal-group">Группа</label><select id="bal-group">' + opts + '</select></div>' +
-      '<div class="field"><label for="bal-half">Период</label><select id="bal-half">' + [1, 2, 0].map(function (h) { return '<option value="' + h + '"' + (balanceHalf(cur || DB.groups[0]) === h ? ' selected' : '') + '>' + (h ? h + ' семестр' : 'Весь учебный год') + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label for="bal-half">Период</label><select id="bal-half">' + [1, 2].map(function (h) { return '<option value="' + h + '"' + (balanceHalf(cur || DB.groups[0]) === h ? ' selected' : '') + '>' + (h ? h + ' семестр' : 'Весь учебный год') + '</option>'; }).join('') + '</select></div>' +
       '<div class="field"><span class="label">Сводка</span><button type="button" class="btn' + (state.balAll ? ' btn-primary' : '') + '" data-bal-all aria-pressed="' + (state.balAll ? 'true' : 'false') + '">Все группы</button></div></section>';
     if (urgent.length) {
       html += '<section class="bal-urgent" aria-labelledby="bal-urgent-h"><h2 id="bal-urgent-h">Горящие группы: срочная вычитка часов</h2><div class="bal-cards">' +
@@ -2667,6 +2726,11 @@
           before = gb ? daysText(gb.days) : ''; after = ga ? daysText(ga.days) + (ga.note ? ' (' + ga.note + ')' : '') : 'как в PDF';
           tag = '<span class="rt rt-grafik">График</span>';
           what = 'График учебного процесса, <span class="grp" translate="no">' + esc(h.group) + '</span>, неделя с ' + esc(fmtDayMonth(h.date)) + '.';
+        } else if (target === 'catalog') {
+          var cb = parseJSON(h.before), ca = parseJSON(h.after);
+          before = cb ? cb.name : ''; after = ca ? ca.name : '';
+          tag = '<span class="rt rt-grafik">Справочник</span>';
+          what = (ca || cb || {}).type === 'teacher' ? 'Преподаватель.' : 'Предмет.';
         } else if (target === 'plan') {
           var pb = parseJSON(h.before), pa = parseJSON(h.after);
           before = pb ? pb.s1 + ' / ' + pb.s2 + ' ч.' : 'исходный учебный план';
@@ -3957,12 +4021,12 @@
     return ((s && s.byDay[day]) || []).filter(function (r) { return r.start === start; });
   }
   function datalistFill(id, values) {
-    $(id).innerHTML = uniq(values).sort(cmpRu).slice(0, 400).map(function (v) { return '<option value="' + esc(v) + '"></option>'; }).join('');
+    $(id).innerHTML = uniq(values).sort(cmpRu).map(function (v) { return '<option value="' + esc(v) + '"></option>'; }).join('');
   }
   function openEditor(o) {
     var groups = o.groups.filter(Boolean);
     if (!groups.length) return;
-    ed = { day: o.day, start: o.start, groups: groups, group: groups[0], all: groups.length > 1, kind: o.kind || '', editId: o.editId || '', chooseGroup: !!o.chooseGroup, presetTeacher: o.teacher || '' };
+    ed = { day: o.day, start: o.start, groups: groups, group: groups[0], all: groups.length > 1, kind: o.kind || '', editId: o.editId || '', chooseGroup: !!o.chooseGroup, presetTeacher: o.teacher || '', presetRoom: o.room || '' };
     $('ed-error').textContent = '';
     $('ed-repeat').value = 'year';
     $('ed-repeat-until').value = Rules.shift(academicEnd(), -1);
@@ -3986,7 +4050,7 @@
       var p = planFor(g);
       if (p) p.subjects.forEach(function (s) { discs.push(s.name); });
     });
-    datalistFill('dl-disc', discs);
+    datalistFill('dl-disc', discs.concat(catalogNames('subject')));
     datalistFill('dl-teacher', DB.teachers);
     datalistFill('dl-room', rooms);
     edLoadSlot();
@@ -4019,7 +4083,7 @@
       ? 'По основному расписанию: ' + base.map(function (r) { return '<strong>' + esc(splitCode(r.disc).name) + '</strong>' + (r.teacher ? ', ' + esc(r.teacher) : '') + (r.room ? ', ' + esc(roomLabel(r.room)) : '') + (r.sub ? ', ' + r.sub + ' подгруппа' : ''); }).join('; ') + '.'
       : 'По основному расписанию в это время у группы пары нет.';
     if (edit) $('ed-now').innerHTML += ' Сейчас действует правка: ' + esc(edit.kind === 'cancel' ? 'пара отменена' : [edit.disc, edit.teacher, edit.room].filter(Boolean).join(', ')) + '.';
-    if (ed.chooseGroup && !g) $('ed-now').textContent = 'Выберите группу для новой пары. Преподаватель уже указан: ' + ed.presetTeacher + '.';
+    if (ed.chooseGroup && !g) $('ed-now').textContent = 'Выберите группу для новой пары. ' + (ed.presetTeacher ? 'Преподаватель: ' + ed.presetTeacher : ed.presetRoom ? 'Аудитория: ' + ed.presetRoom : '');
     else if (ed.chooseGroup && base.length) $('ed-now').innerHTML += ' У выбранной группы это время занято. Выберите другую группу или добавьте параллельную пару.';
     // ТЗ, этап 4: «возможность добавить две пары в одно время» — «Ещё пара» ставит пару рядом с этой
     var addOnly = edit && edit.kind === 'add';
@@ -4034,7 +4098,7 @@
     var src = edit && edit.kind !== 'cancel' ? edit : kind === 'add' && ed.occupied ? {} : base[0] || { disc: '', teacher: '', room: '', sub: 0 };
     $('ed-disc').value = src.disc || '';
     $('ed-teacher').value = ed.presetTeacher || src.teacher || '';
-    $('ed-room').value = src.room || '';
+    $('ed-room').value = ed.presetRoom || src.room || '';
     $('ed-sub').value = String(edit ? +edit.sub || 0 : 0);
     $('ed-note').value = edit ? edit.note || '' : '';
     $('ed-remove').hidden = !edit;
@@ -4226,7 +4290,7 @@
     } else {
       var shown = [];
       if (state.mode === 'group' && state.group && DB.sheets[state.group]) shown = [DB.sheets[state.group]];
-      if (state.mode === 'teacher') shown = Object.keys(DB.sheets).map(function (g) { return DB.sheets[g]; });
+      if (state.mode !== 'group') shown = Object.keys(DB.sheets).map(function (g) { return DB.sheets[g]; });
       var anyFailed = net.listFailed || Object.keys(net.failed).length > 0;
       if (net.bulk) { st = 'loading'; text = 'Загружаю расписание групп из базы расписания: ' + net.bulk.done + ' из ' + net.bulk.total + '…'; }
       else if (net.pending > 0) { st = 'loading'; text = 'Загружаю свежее расписание из базы расписания…'; }
@@ -4272,6 +4336,7 @@
   }
 
   function render() {
+    if (state.view !== 'lessons' && state.mode === 'room') state.mode = 'group';
     resolvePendingHash();
     var td = new Date();
     $('today-label').textContent = WEEKDAYS[td.getDay()][0].toUpperCase() + WEEKDAYS[td.getDay()].slice(1) + ', ' + fmtDayMonth(todayISO());
@@ -4354,7 +4419,7 @@
     var view = $('view-' + state.view);
     var blocks = Array.prototype.filter.call(view.querySelectorAll(ENTER), function (b) { return b.offsetParent !== null; });
     var main = blocks.filter(function (b) { return b.matches('.dcard, .tablebox, .hsum, .book, .course, .empty'); }).length;
-    var key = [state.view, state.mode, state.group, state.teacher, state.week, state.span, state.day, state.half,
+    var key = [state.view, state.mode, state.group, state.teacher, state.room, state.week, state.span, state.day, state.half,
       state.exPage, state.exTeacher, state.bookGroup, state.bookHalf, isAdmin(), main].join('|');
     if (key === enterKey) return;
     enterKey = key;
@@ -4396,6 +4461,9 @@
   function renderWho() {
     $('group-field').hidden = state.mode !== 'group';
     $('teacher-field').hidden = state.mode !== 'teacher';
+    $('room-field').hidden = state.mode !== 'room';
+    $('room').value = state.room;
+    $('mode').querySelector('[data-value="room"]').hidden = state.view !== 'lessons';
     $('group').value = state.group;
     $('teacher').value = state.teacher;
     Array.prototype.forEach.call($('mode').querySelectorAll('button'), function (b) {
@@ -4410,6 +4478,7 @@
 
   // ---------- events ----------
   function switchView(view) {
+    if (view !== 'lessons' && state.mode === 'room') state.mode = 'group';
     if (view === state.view) return;
     if (view === 'exams' && !ex.group.length && !ex.teacher.length) {
       if (state.mode === 'group' && state.group) ex.group = [state.group];
@@ -4481,7 +4550,7 @@
         var free = DB.slots.filter(function (s) { return busy.indexOf(s.start) < 0; })[0] || DB.slots[0];
         astart = free ? free.start : '8:30';
       }
-      openEditor({ day: aday, start: astart, groups: sel.mode === 'teacher' ? DB.groups : [sel.name], kind: 'add', chooseGroup: sel.mode === 'teacher', teacher: sel.mode === 'teacher' ? sel.name : '' });
+      openEditor({ day: aday, start: astart, groups: sel.mode !== 'group' ? DB.groups : [sel.name], kind: 'add', chooseGroup: sel.mode !== 'group', teacher: sel.mode === 'teacher' ? sel.name : '', room: sel.mode === 'room' ? sel.name : '' });
     }
   });
   $('history-body').addEventListener('click', function (e) {
@@ -4702,6 +4771,7 @@
     ensureView();
   });
   $('group').addEventListener('change', function (e) { state.group = e.target.value; state.week = ''; render(); ensureView(); });
+  $('room').addEventListener('change', function (e) { state.room = e.target.value; render(); });
   $('teacher').addEventListener('change', function (e) { state.teacher = e.target.value; render(); });
   $('picker-body').addEventListener('click', function (e) {
     var b = e.target.closest('button[data-group]');

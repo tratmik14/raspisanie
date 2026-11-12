@@ -32,6 +32,7 @@
   }
   function planOpen() {
     if (!ctx.user()) return;
+    ctx.suggestions();
     groups($('plan-group'), ctx.group());
     planSelect(); $('plan-dialog').showModal();
   }
@@ -79,6 +80,7 @@
   }
   function init(context) {
     ctx = context;
+    window.RaspScheduleTools.init(context);
     ['hours', 'balance', 'exams'].forEach(function (view) {
       var bar = document.createElement('div'); bar.className = 'admin-tools'; bar.id = 'admin-tools-' + view; bar.hidden = true;
       bar.innerHTML = view === 'exams' ? '<button type="button" class="btn btn-small" data-exam-new>Добавить экзамен или зачёт</button><span class="hint">Изменить запись можно кнопкой с карандашом рядом с дисциплиной.</span>' : '<button type="button" class="btn btn-small" data-plan-open>Изменить учебный план</button><span class="hint">Проведённые часы считаются по занятиям. План, преподавателей и формы аттестации можно изменить здесь.</span>';
@@ -86,7 +88,7 @@
     });
     var holder = document.createElement('div');
     holder.innerHTML = '<dialog class="dlg dlg-wide" id="plan-dialog" aria-labelledby="plan-title"><form method="dialog" onsubmit="return false"><h2 id="plan-title">Учебный план группы</h2><p class="hint">Изменения сохраняются в общей базе и учитываются в часах, вычитке и зачётке. Проведённые часы меняются при добавлении и отмене занятий.</p>' +
-      '<div class="row2"><div class="field"><label for="plan-group">Группа</label><select id="plan-group"></select></div><div class="field"><label for="plan-subject">Предмет</label><select id="plan-subject"></select></div></div>' + field('Название предмета', 'plan-name') +
+      '<div class="row2"><div class="field"><label for="plan-group">Группа</label><select id="plan-group"></select></div><div class="field"><label for="plan-subject">Предмет</label><select id="plan-subject"></select></div></div>' + field('Название предмета', 'plan-name', 'text', 'list="dl-disc"') +
       '<div class="row2">' + field('План часов, 1 семестр', 'plan-s1', 'number', 'min="0" max="10000" step="1"') + field('План часов, 2 семестр', 'plan-s2', 'number', 'min="0" max="10000" step="1"') + '</div>' +
       '<div class="row2">' + forms('plan-f1') + forms('plan-f2') + '</div>' + field('Преподаватель', 'plan-teacher', 'text', 'list="dl-teacher"') +
       '<p class="error" id="plan-error" role="alert"></p><div class="dlg-actions"><button type="button" class="btn btn-quiet" data-close-dialog="plan-dialog">Закрыть</button><button type="button" class="btn btn-primary" id="plan-save">Сохранить учебный план</button></div></form></dialog>' +
@@ -97,6 +99,8 @@
       '<div class="row2">' + field('Дата пересдачи', 'exam-edit-retakeDate', 'date') + field('Время пересдачи', 'exam-edit-retakeTime', 'time') + '</div>' +
       '<p class="hint">Занятия в день экзамена проверяйте в разделе «Занятия». При ручном редактировании экзамена они не отменяются автоматически.</p><p class="error" id="exam-edit-error" role="alert"></p><div class="dlg-actions"><button type="button" class="btn btn-quiet btn-danger" id="exam-edit-remove">Убрать запись</button><span class="spacer"></span><button type="button" class="btn btn-quiet" data-close-dialog="exam-edit-dialog">Закрыть</button><button type="button" class="btn btn-primary" id="exam-edit-save">Сохранить</button></div></form></dialog>';
     while (holder.firstChild) document.body.append(holder.firstChild);
+    var catalogButton = document.createElement('button'); catalogButton.type = 'button'; catalogButton.className = 'btn'; catalogButton.setAttribute('data-catalog-open',''); catalogButton.textContent = 'Преподаватели и предметы';
+    $('account-dialog').querySelector('.dlg-actions').prepend(catalogButton);
     $('plan-group').addEventListener('change', planSelect);
     $('plan-subject').addEventListener('change', planFill);
     $('plan-save').addEventListener('click', planSave);
@@ -115,4 +119,3 @@
     ['hours', 'balance', 'exams'].forEach(function (view) { $('admin-tools-' + view).hidden = !ctx.user(); });
   } };
 })();
-

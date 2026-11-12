@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
   <link rel="stylesheet" href="styles.css?v=4.2">
-  <link rel="stylesheet" href="admin-tools.css?v=5.0.1">
+  <link rel="stylesheet" href="admin-tools.css?v=6.0">
 </head>
 <body>
   <a class="skip" href="#page-title">Перейти к расписанию</a>
@@ -72,6 +72,7 @@
           <div class="seg" id="mode" role="radiogroup" aria-labelledby="mode-label">
             <button type="button" role="radio" data-value="group">Группы</button>
             <button type="button" role="radio" data-value="teacher">Преподавателя</button>
+            <button type="button" role="radio" data-value="room">Аудитории</button>
           </div>
         </div>
         <div class="field f-entity" id="group-field">
@@ -82,6 +83,7 @@
           <label for="teacher">Преподаватель</label>
           <select id="teacher" name="teacher"></select>
         </div>
+        <div class="field f-entity" id="room-field" hidden><label for="room">Аудитория</label><select id="room" name="room"></select></div>
         <div class="field" id="half-field" hidden>
           <span class="label" id="half-label">Период</span>
           <div class="seg" id="half" role="radiogroup" aria-labelledby="half-label">
@@ -119,6 +121,8 @@
       <div class="admin-bar" id="admin-bar" hidden>
         <p>Режим администратора: нажмите на карандаш у пары, чтобы заменить, отменить, перенести её или поставить ещё одну пару в это же время. На свободное время пару ставит кнопка «Добавить пару».</p>
         <p class="demo-note" id="demo-note" hidden>Демо-режим: правки сохраняются только в этом браузере, другие посетители их не видят. Чтобы правки видели все, подключите сервер админки (README, раздел «Как подключить»).</p>
+        <button type="button" class="btn btn-small" data-multi-open="week">Добавить пары на неделю</button>
+        <button type="button" class="btn btn-small" data-catalog-open>Преподаватели и предметы</button>
         <button type="button" class="btn btn-small" id="bulk-open">Массовая замена</button>
         <button type="button" class="btn btn-small" data-pi-open>Загрузить практику</button>
       </div>
@@ -568,11 +572,12 @@
   <script src="config.js?v=5.0"></script>
   <script src="hours.js?v=4.2"></script>
   <script src="gas-sim.js?v=5.0"></script>
-  <script src="api.js?v=5.0"></script>
+  <script src="api.js?v=6.0"></script>
   <script src="schedule-rules.js?v=5.0"></script>
-  <script src="admin-tools.js?v=5.0"></script>
-  <script src="app.js?v=5.1"></script>
+  <script src="catalog.js?v=6.0"></script>
+  <script src="schedule-tools.js?v=6.0"></script>
+  <script src="admin-tools.js?v=6.0"></script>
+  <script src="app.js?v=6.0"></script>
 </body>
 </html>
-
 
