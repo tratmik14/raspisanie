@@ -16,7 +16,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '5.0';
+  var SITE_VERSION = '5.1';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -1346,7 +1346,7 @@
     var diff = daysBetween(today, dayIso);
     var cls = diff === 0 ? ' is-today' : (diff < 0 ? ' is-past' : '');
     var rel = relLabel(diff);
-    var admin = isAdmin(), canAdd = admin && sel.mode === 'group';
+    var admin = isAdmin(), canAdd = admin;
     var head = '<header class="dhead"><span class="dname">' + WEEKDAYS_MON[wd] + '</span><span class="ddate">' + fmtDayMonth(dayIso) + '</span>' +
       (rel ? '<span class="rel">' + rel + '</span>' : '') + '</header>';
     var addBtn = canAdd ? '<button type="button" class="btn btn-quiet btn-small add-pair" data-add-day="' + dayIso + '">' + PLUS + 'Добавить пару</button>' : '';
@@ -3962,7 +3962,7 @@
   function openEditor(o) {
     var groups = o.groups.filter(Boolean);
     if (!groups.length) return;
-    ed = { day: o.day, start: o.start, groups: groups, group: groups[0], all: groups.length > 1, kind: o.kind || '', editId: o.editId || '' };
+    ed = { day: o.day, start: o.start, groups: groups, group: groups[0], all: groups.length > 1, kind: o.kind || '', editId: o.editId || '', chooseGroup: !!o.chooseGroup, presetTeacher: o.teacher || '' };
     $('ed-error').textContent = '';
     $('ed-repeat').value = 'year';
     $('ed-repeat-until').value = Rules.shift(academicEnd(), -1);
@@ -3970,10 +3970,10 @@
     $('ed-repeat-until').max = Rules.shift(academicEnd(), -1);
     $('ed-study-only').checked = true;
     var gsel = $('ed-group');
-    gsel.innerHTML = (groups.length > 1 ? '<option value="*">Все группы потока: ' + esc(groups.join(', ')) + '</option>' : '') +
+    gsel.innerHTML = (ed.chooseGroup ? '<option value="">Выберите группу для пары</option>' : groups.length > 1 ? '<option value="*">Все группы потока: ' + esc(groups.join(', ')) + '</option>' : '') +
       groups.map(function (g) { return '<option value="' + esc(g) + '">' + esc(g) + '</option>'; }).join('');
-    gsel.value = groups.length > 1 && !o.editId ? '*' : ed.group;
-    $('ed-group-field').hidden = groups.length < 2;
+    gsel.value = ed.chooseGroup ? '' : groups.length > 1 && !o.editId ? '*' : ed.group;
+    $('ed-group-field').hidden = !ed.chooseGroup && groups.length < 2;
     $('ed-slot').innerHTML = DB.slots.map(function (s) { return '<option value="' + esc(s.start) + '">' + s.n + ' пара, ' + esc(s.start) + '–' + esc(s.end) + '</option>'; }).join('');
     $('ed-slot').value = o.start;
     $('ed-move-slot').innerHTML = $('ed-slot').innerHTML;
@@ -4005,6 +4005,7 @@
       if (liveRows.length === 1 && liveRows[0].edit && liveRows[0].edit.kind === 'add') edit = liveRows[0].edit;
     }
     if (!edit && ed.editId) edit = EDITS.list.filter(function (e) { return e.id === ed.editId; })[0] || null;
+    if (ed.chooseGroup) edit = null;
     var base = [];
     rows.forEach(function (r) {
       if (r.edit) { if (r.edit.kind !== 'add') (r.was || []).forEach(function (w) { if (base.indexOf(w) < 0) base.push(w); }); }
@@ -4018,6 +4019,8 @@
       ? 'По основному расписанию: ' + base.map(function (r) { return '<strong>' + esc(splitCode(r.disc).name) + '</strong>' + (r.teacher ? ', ' + esc(r.teacher) : '') + (r.room ? ', ' + esc(roomLabel(r.room)) : '') + (r.sub ? ', ' + r.sub + ' подгруппа' : ''); }).join('; ') + '.'
       : 'По основному расписанию в это время у группы пары нет.';
     if (edit) $('ed-now').innerHTML += ' Сейчас действует правка: ' + esc(edit.kind === 'cancel' ? 'пара отменена' : [edit.disc, edit.teacher, edit.room].filter(Boolean).join(', ')) + '.';
+    if (ed.chooseGroup && !g) $('ed-now').textContent = 'Выберите группу для новой пары. Преподаватель уже указан: ' + ed.presetTeacher + '.';
+    else if (ed.chooseGroup && base.length) $('ed-now').innerHTML += ' У выбранной группы это время занято. Выберите другую группу или добавьте параллельную пару.';
     // ТЗ, этап 4: «возможность добавить две пары в одно время» — «Ещё пара» ставит пару рядом с этой
     var addOnly = edit && edit.kind === 'add';
     var kinds = addOnly ? ['add', 'move'] : base.length || edit ? ['replace', 'cancel', 'move', 'add'] : ['add'];
@@ -4030,7 +4033,7 @@
     });
     var src = edit && edit.kind !== 'cancel' ? edit : kind === 'add' && ed.occupied ? {} : base[0] || { disc: '', teacher: '', room: '', sub: 0 };
     $('ed-disc').value = src.disc || '';
-    $('ed-teacher').value = src.teacher || '';
+    $('ed-teacher').value = ed.presetTeacher || src.teacher || '';
     $('ed-room').value = src.room || '';
     $('ed-sub').value = String(edit ? +edit.sub || 0 : 0);
     $('ed-note').value = edit ? edit.note || '' : '';
@@ -4047,10 +4050,12 @@
     $('ed-move').hidden = kind !== 'move';
     $('ed-slot-field').hidden = kind !== 'add';
     $('ed-save').textContent = kind === 'cancel' ? 'Отменить пару' : kind === 'move' ? 'Перенести пару' : kind === 'add' ? (ed.occupied ? 'Добавить ещё пару' : 'Сохранить пару') : 'Сохранить замену';
+    if (ed.chooseGroup) $('ed-save').disabled = !ed.group || !isLive(ed.group);
     edRepeatPreview();
     syncRoving();
   }
   function edSave() {
+    if (ed.chooseGroup && (!ed.group || !isLive(ed.group))) { $('ed-error').textContent = 'Выберите группу и дождитесь загрузки её расписания.'; $('ed-group').focus(); return; }
     var targets = $('ed-group').value === '*' ? ed.groups : [ed.group];
     var sub = +$('ed-sub').value || 0, note = $('ed-note').value.trim();
     var fields = { disc: $('ed-disc').value.trim(), teacher: $('ed-teacher').value.trim(), room: $('ed-room').value.trim() };
@@ -4126,6 +4131,7 @@
   }
   function edRepeatPreview() {
     if (!ed) return;
+    if (ed.chooseGroup && !ed.group) { $('ed-repeat-preview').textContent = 'После выбора группы будут показаны недели повторения.'; return; }
     var once = $('ed-repeat').value === 'once';
     $('ed-repeat-until').disabled = once;
     $('ed-study-only').disabled = once;
@@ -4475,7 +4481,7 @@
         var free = DB.slots.filter(function (s) { return busy.indexOf(s.start) < 0; })[0] || DB.slots[0];
         astart = free ? free.start : '8:30';
       }
-      openEditor({ day: aday, start: astart, groups: [sel.name], kind: 'add' });
+      openEditor({ day: aday, start: astart, groups: sel.mode === 'teacher' ? DB.groups : [sel.name], kind: 'add', chooseGroup: sel.mode === 'teacher', teacher: sel.mode === 'teacher' ? sel.name : '' });
     }
   });
   $('history-body').addEventListener('click', function (e) {
@@ -4616,7 +4622,18 @@
     var b = e.target.closest('button');
     if (b) edSetKind(b.getAttribute('data-value'));
   });
-  $('ed-group').addEventListener('change', edLoadSlot);
+  $('ed-group').addEventListener('change', function () {
+    edLoadSlot();
+    if (!ed.chooseGroup || !ed.group || isLive(ed.group)) return;
+    var editor = ed, group = ed.group;
+    $('ed-save').disabled = true; $('ed-error').textContent = 'Загружаю расписание выбранной группы…';
+    loadSheet(group).then(function () {
+      recompute();
+      if (ed !== editor || $('ed-group').value !== group) return;
+      if (!isLive(group)) { $('ed-error').textContent = 'Не удалось загрузить группу. Выберите её снова, чтобы повторить.'; return; }
+      $('ed-error').textContent = ''; edLoadSlot();
+    });
+  });
   $('ed-slot').addEventListener('change', edLoadSlot);
   ['ed-repeat-until', 'ed-study-only', 'ed-move-date', 'ed-move-slot'].forEach(function (id) { $(id).addEventListener('change', edRepeatPreview); });
   $('ed-repeat').addEventListener('change', function () {
