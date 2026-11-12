@@ -48,6 +48,13 @@ async function run(){
   const bulk=await call({action:'save',token,edits,batch:'rtestweek'});assert.equal(bulk.ok,true);assert.equal(bulk.edits.length,30);
   assert.equal((await call({action:'state'})).edits.length,30);
   console.log('Справочники: авторизация, добавление, цепочка переименований, дубликаты, публичное чтение и откат; пакет 30 пар проверены');
+  const attestations=['Экзамен','Зачёт','Диф. зачёт'].map((type,i)=>({group:'ИС2-25',discipline:'Аттестация '+i,date:'2027-01-20',time:'10:00',room:'302',teacher:'А.',type,retakeDate:'',retakeTime:''}));
+  assert.equal((await call({action:'examsImport',token,records:attestations})).ok,true);
+  let exams=(await call({action:'state'})).exams;assert.equal(exams.length,3);assert.equal(exams[1].type,'Зачёт');
+  attestations[1].retakeDate='2027-01-25';attestations[1].retakeTime='12:00';
+  assert.equal((await call({action:'examsImport',token,records:attestations})).ok,true);
+  exams=(await call({action:'state'})).exams;assert.equal(exams[1].date,'2027-01-20');assert.equal(exams[1].retakeDate,'2027-01-25');assert.equal(exams.length,3);
+  console.log('Сервер: экзамены, зачёты, дифзачёты и даты пересдач сохраняются и читаются из общей базы');
   console.log('Сервер: авторизация, сохранение плана, проверка полей, публичное чтение и оба вида отката проверены');
 }
 run().catch(e=>{console.error(e);process.exitCode=1;});

@@ -20,3 +20,15 @@
 @media (max-width: 650px) { .multi-row { grid-template-columns: 90px minmax(0,1fr); } .multi-row input[data-multi-teacher], .multi-row input[data-multi-room], .multi-busy { grid-column: 2; } .multi-dialog { width: calc(100vw - 24px); } }
 #plan-dialog input[type="number"], #exam-edit-dialog input[type="time"] { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--fg); font: inherit; font-weight: 600; box-sizing: border-box; }
 @media (max-width: 560px) { .repeat-fields { padding: .75rem; } .admin-tools { align-items: stretch; } .admin-tools .btn { width: 100%; } }
+
+.site-management { border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); margin: 1rem 0; }
+.site-management[hidden] { display: none; }
+.site-management summary { cursor: pointer; padding: 1rem; font-weight: 700; color: var(--fg); }
+.site-management summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.management-body { padding: 0 1rem 1rem; }
+.management-body fieldset { min-width: 0; border: 0; border-top: 1px solid var(--line-strong); margin: .8rem 0 1.2rem; padding: .8rem 0 0; }
+.management-body legend { padding-right: .5rem; font-weight: 600; }
+.management-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.exam-edit { display: inline-flex; align-items: center; gap: .35rem; margin-bottom: .35rem; }
+#retake-dialog input[type="time"] { width: 100%; height: 44px; padding: 0 12px; border: 1.5px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--fg); font: inherit; box-sizing: border-box; }
+@media (max-width: 560px) { .management-actions .btn { width: 100%; text-align: left; white-space: normal; } }

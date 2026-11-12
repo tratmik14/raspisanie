@@ -16,7 +16,7 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '6.0';
+  var SITE_VERSION = '6.1';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
@@ -981,6 +981,9 @@
   window.RaspAdminTools.init({
     user: isAdmin, groups: function () { return DB.groups; }, group: function () { return state.group || DB.groups[0] || ''; },
     plan: planFor, exams: function () { return EX.records; }, api: Api,
+    navigate: function (view) { switchView(view); },
+    examGroup: function () { return state.exPage === 'book' && state.bookGroup ? state.bookGroup : ex.group.length === 1 ? ex.group[0] : state.group || DB.groups[0] || ''; },
+    showExam: function (record, retake) { state.view = 'exams'; state.exPage = 'list'; ex = exDefaults(); ex.group = [record.group]; ex.type = retake ? 'retake' : TYPE_KEY[record.type] || 'exam'; render(); },
     refresh: function () { HIST.status = 'idle'; return loadEdits().then(function () { recompute(); fillOptions(); refreshSuggestions(); render(); }); },
     toast: toast, esc: esc,
     catalogNames: catalogNames, catalog: function () { return CATALOG; }, suggestions: refreshSuggestions,
@@ -2860,7 +2863,7 @@
     switch (col.key) {
       case 'num': return '<td class="num" data-label="№">' + i + '</td>';
       case 'group': return '<td data-label="Группа"><span class="grp" translate="no">' + esc(r.group) + '</span></td>';
-      case 'disc': return '<td class="title" data-label="Дисциплина">' + (isAdmin() ? '<button type="button" class="btn btn-small exam-edit" data-exam-edit="' + EX.records.indexOf(r) + '" aria-label="Изменить: ' + esc(r.discipline) + '">' + PENCIL + '</button> ' : '') + discHTML(r.discipline) + (it.retake ? ' (Пересдача)' : '') + '</td>';
+      case 'disc': return '<td class="title" data-label="Дисциплина">' + (isAdmin() ? '<button type="button" class="btn btn-small exam-edit" data-exam-edit="' + EX.records.indexOf(r) + '" aria-label="Изменить: ' + esc(r.discipline) + '">' + PENCIL + 'Изменить</button> ' : '') + discHTML(r.discipline) + (it.retake ? ' (Пересдача)' : '') + '</td>';
       case 'teacher': return '<td data-label="Преподаватель">' + esc(r.teacher || '—') + '</td>';
       case 'date': return '<td class="mono" data-label="Дата">' + fmtShort(it.date) + '</td>';
       case 'time': return '<td class="mono col-minor" data-label="Время">' + esc(it.time || '—') + '</td>';
@@ -3074,6 +3077,10 @@
     });
     return best;
   }
+  function examManageHTML(r, seed) {
+    if (!isAdmin()) return '';
+    return r ? '<button type="button" class="btn btn-small" data-exam-edit="' + EX.records.indexOf(r) + '">Изменить</button> <button type="button" class="btn btn-quiet btn-small" data-retake-edit="' + EX.records.indexOf(r) + '">Пересдача</button>' : '<button type="button" class="btn btn-small" data-exam-seed="' + esc(JSON.stringify(seed)) + '">Назначить дату</button>';
+  }
   function examWhen(r) {
     if (!r) return '<span class="hint">не назначена</span>';
     return esc(fmtShort(r.date)) + (r.time ? '<br>' + esc(r.time) : '') + (r.room ? '<br><span class="hint">' + esc(roomLabel(r.room)) + '</span>' : '');
@@ -3108,7 +3115,7 @@
       return '<table class="book-table"><thead><tr><th scope="col">№</th><th scope="col">Дисциплина</th><th scope="col" class="n">Часов</th>' +
         '<th scope="col">Дата</th><th scope="col">Преподаватель</th></tr></thead><tbody>' + list.map(function (it, i) {
           return '<tr><td class="n">' + (i + 1) + '</td><td>' + discHTML(it.s.name) + '</td>' +
-            '<td class="n">' + (it.hours || '—') + '</td><td>' + examWhen(it.rec) + '</td><td>' + esc(it.s.teacher || '—') + '</td></tr>';
+            '<td class="n">' + (it.hours || '—') + '</td><td>' + examWhen(it.rec) + examManageHTML(it.rec, {group:g,discipline:it.s.name,teacher:it.s.teacher,type:it.f === 'Э' ? 'Экзамен' : it.f === 'З' ? 'Зачёт' : 'Диф. зачёт'}) + '</td><td>' + esc(it.s.teacher || '—') + '</td></tr>';
         }).join('') + '</tbody></table>';
     }
     box.innerHTML = controls + '<div class="book" aria-label="Разворот зачётной книжки">' +
@@ -3149,7 +3156,7 @@
       '<div class="table-wrap"><table class="smart"><thead><tr><th scope="col">Семестр</th><th scope="col">Группа</th><th scope="col">Дисциплина</th><th scope="col">Форма</th><th scope="col">Дата</th></tr></thead><tbody>' +
       items.map(function (it) {
         return '<tr><td data-label="Семестр">' + it.half + '</td><td data-label="Группа"><span class="grp" translate="no">' + esc(it.group) + '</span></td><td class="title" data-label="Дисциплина">' + discHTML(it.name) + '</td>' +
-          '<td data-label="Форма">' + formHTML(it.form) + '</td><td data-label="Дата">' + examWhen(it.rec) + '</td></tr>';
+          '<td data-label="Форма">' + formHTML(it.form) + '</td><td data-label="Дата">' + examWhen(it.rec) + examManageHTML(it.rec, {group:it.group,discipline:it.name,teacher:t,type:it.form === 'Э' ? 'Экзамен' : it.form === 'З' ? 'Зачёт' : 'Диф. зачёт'}) + '</td></tr>';
       }).join('') + '</tbody></table></div></section>' +
       '<p class="hint">Из учебных планов групп (где преподаватель указан у предмета) и расписания экзаменов.</p>';
   }
@@ -4283,7 +4290,8 @@
       else {
         st = 'ok';
         var docs = EXF.records.length ? 'графики экзаменов и зачётной недели' + (EXF.period ? ', ' + EXF.period : '') : '';
-        if (EXS.status === 'ok') text = 'Свежие данные из базы расписания, загружены ' + fmtStamp(EX.at) + (docs ? '; к ним добавлены ' + docs : '') + '.';
+        if (CFG.dataSource === 'database') text = 'Экзамены, зачёты и пересдачи из общей базы сайта, обновлены ' + fmtStamp(EXI.at) + '. Записей: ' + EX.records.length + '.';
+        else if (EXS.status === 'ok') text = 'Свежие данные из базы расписания, загружены ' + fmtStamp(EX.at) + (docs ? '; к ним добавлены ' + docs : '') + '.';
         else if (docs) text = 'Показаны ' + docs + '.';
         else text = 'Google-таблица прочитана ' + fmtStamp(EX.at) + ': листа с экзаменами в ней пока нет.';
       }
