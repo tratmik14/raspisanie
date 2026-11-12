@@ -17,7 +17,8 @@
  * Тот же файл сайт запускает у себя в демо-режиме (gas-sim.js), поэтому правила одни и те же.
  */
 
-var VERSION = '2.0';
+var VERSION = '2.1';
+var DATABASE_ID = '1SqSkidIPZ9eFIgfINub6y3kWxBgQB8tAd3JrxXtlxw8';
 var SHEETS = {
   edits: 'Правки', history: 'История', admins: 'Админы', grafik: 'График', snaps: 'Снимки',
   journal: 'Изменения таблицы', exams: 'Экзамены', examsPrev: 'Экзамены (прошлая версия)'
@@ -59,6 +60,7 @@ function route(req) {
   try {
     switch (String(req.action || 'ping')) {
       case 'ping': return { ok: true, version: VERSION, admins: readAdmins().filter(isActive).length };
+      case 'table': return databaseTable(req);
       case 'state': return state(req);
       case 'edits': return listEdits(req);
       case 'history': return history(req);
@@ -89,7 +91,32 @@ function fail(message, extra) {
 function userError(message) { var e = new Error(message); e.userMessage = message; return e; }
 
 // ---------- sheets ----------
-function book() { return SpreadsheetApp.getActiveSpreadsheet(); }
+function book() { return SpreadsheetApp.openById(DATABASE_ID); }
+function databaseTable(req) {
+  var name = String(req.sheet || ''), ss = book(), list = ss.getSheetByName('Список групп');
+  if (Object.keys(SHEETS).some(function (key) { return SHEETS[key] === name; })) return fail('Лист не разрешён');
+  var groups = list ? list.getRange(1, 1, Math.max(1, list.getLastRow()), 1).getDisplayValues().map(function (r) { return r[0].trim(); }) : [];
+  var common = ['Список групп', '0 Календарь', '0 Учебные графики'];
+  if (common.indexOf(name) < 0 && groups.indexOf(name) < 0) return fail('Лист не разрешён');
+  var sh = ss.getSheetByName(name);
+  if (!sh) return fail('Лист не найден: ' + name);
+  var columns = name === 'Список групп' ? 1 : common.indexOf(name) >= 0 ? sh.getLastColumn() : Math.min(9, sh.getLastColumn());
+  var rows = sh.getRange(1, 1, Math.max(1, sh.getLastRow()), Math.max(1, columns)).getDisplayValues();
+  var csv = rows.map(function (r) {
+    return r.map(function (v) { return '"' + v.replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\r\n');
+  return { ok: true, csv: csv, database: DATABASE_ID, at: Date.now() };
+}
+// Однократный перенос текущих значений: формулы больше не обращаются к чужим таблицам.
+function initializeDatabase() {
+  var ss = book();
+  ss.getSheets().forEach(function (sh) {
+    var range = sh.getDataRange();
+    range.copyTo(range, SpreadsheetApp.CopyPasteType.PASTE_VALUES, false);
+  });
+  onOpen();
+  SpreadsheetApp.flush();
+}
 function sheet(name, cols, head) {
   var ss = book(), sh = ss.getSheetByName(name);
   if (!sh) {
@@ -574,7 +601,7 @@ function fetchDoc(req) {
 
 // ---------- spreadsheet menu for the owner ----------
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Расписание')
+  SpreadsheetApp.getUi().createMenu('База сайта')
     .addItem('Добавить администратора', 'menuAddAdmin')
     .addItem('Сбросить пароль администратора', 'menuResetPassword')
     .addItem('Отключить администратора', 'menuDisableAdmin')
@@ -636,3 +663,5 @@ function menuDisableAdmin() {
   writeRow(SHEETS.admins, ADMIN_COLS, ADMIN_HEAD, admin, admin._row);
   ui.alert(admin.login + ' больше не может входить и вносить правки.');
 }
+
+

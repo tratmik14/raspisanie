@@ -62,6 +62,13 @@
 
   window.RaspApi = {
     mode: mode,
+    loadTable: function (name) {
+      if (mode !== 'live') return Promise.reject(new Error('База расписания не подключена'));
+      return get({ action: 'table', sheet: name }).then(checked).then(function (r) {
+        if (r.database !== CFG.sheetId || typeof r.csv !== 'string') throw new Error('Сервер вернул данные другой базы');
+        return r.csv;
+      });
+    },
     user: function () { return session ? session.user : null; },
     // everything laid over the timetable: edits, schedule corrections, imported exams
     loadState: function () { return call('state'); },
@@ -97,3 +104,5 @@
     password: function (old, next) { return admin('password', { old: old, next: next }); }
   };
 })();
+
+

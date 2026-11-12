@@ -94,6 +94,7 @@
     };
   }
   var SpreadsheetApp = {
+    openById: function () { return SpreadsheetApp.getActiveSpreadsheet(); },
     getActiveSpreadsheet: function () {
       return {
         getSheetByName: function (n) { return book.sheets[n] ? sheetObj(n) : null; },
@@ -162,3 +163,5 @@
     }
   };
 })();
+
+

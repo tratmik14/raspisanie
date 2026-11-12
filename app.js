@@ -2,9 +2,10 @@
   'use strict';
 
   var CFG = window.SCHEDULE_CONFIG || {};
+  var DB_KEY = String(CFG.sheetId || '') + ':';
   var DAY = 864e5;
   var PREFS_KEY = 'raspisanie.prefs.v1';
-  var CACHE_KEY = 'raspisanie.sheet.v1:';
+  var CACHE_KEY = 'raspisanie.sheet.v2:' + DB_KEY;
   var CONCURRENCY = 4;
   var XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 
@@ -15,14 +16,14 @@
   var TEACHER_RE = /^[А-ЯЁ][а-яё]+(?:-[А-ЯЁ][а-яё]+)?\s+[А-ЯЁ]\.\s?(?:[А-ЯЁ]\.?)?$/;
   var GROUP_RE = /^[А-ЯЁA-Z][А-ЯЁA-Zа-яё0-9]*-\d{2}[А-ЯЁа-яё]?$/;
   var TYPE_KEY = { 'Экзамен': 'exam', 'Диф. зачёт': 'diff', 'Зачёт': 'credit' };
-  var SITE_VERSION = '4.2';
+  var SITE_VERSION = '4.3';
   var COLS_KEY = 'raspisanie.columns.v1';
   var FAVS_KEY = 'raspisanie.favs.v1';
   var THEME_KEY = 'raspisanie.theme.v1';
-  var STATE_KEY = 'raspisanie.state.v1';
-  var GOOD_KEY = 'raspisanie.good.v1';
-  var DIFF_KEY = 'raspisanie.diff.v1:';
-  var SOURCES_KEY = 'raspisanie.sources.v1';
+  var STATE_KEY = 'raspisanie.state.v2:' + DB_KEY;
+  var GOOD_KEY = 'raspisanie.good.v2:' + DB_KEY;
+  var DIFF_KEY = 'raspisanie.diff.v2:' + DB_KEY;
+  var SOURCES_KEY = 'raspisanie.sources.v2:' + DB_KEY;
   var VIEWS = ['lessons', 'hours', 'balance', 'grafik', 'exams', 'history'];
   var VIEW_TITLES = {
     lessons: ['Расписание занятий', 'Пары на каждую неделю семестра: для группы или для преподавателя.'],
@@ -154,6 +155,10 @@
   // Google answers 35 sheets at once with an occasional error or 429; such a sheet is asked again
   // twice with a pause, so one hiccup no longer leaves a group without its timetable.
   function fetchSheet(name, range) {
+    if (CFG.dataSource === 'database') {
+      if (!Api || !Api.loadTable) return Promise.reject(new Error('База расписания не подключена'));
+      return Api.loadTable(name);
+    }
     var tries = 0;
     function attempt() {
       return fetch(sheetUrl(name, range), { cache: 'no-store' }).then(function (res) {
@@ -4894,3 +4899,4 @@
     }
   })();
 })();
+
