@@ -15,7 +15,7 @@ vm.runInNewContext(fs.readFileSync(path.join(root,'gas-sim.js'),'utf8'),{
 async function run(){
   const call=x=>window.RaspSim.call(x);
   assert.equal((await call({action:'planSave',record:{}})).ok,false);
-  const login=await call({action:'login',login:'demo',password:'demo'});assert.equal(login.ok,true);
+  const login=await call({action:'login',login:'DEMO',password:'12345678'});assert.equal(login.ok,true);
   const token=login.token, record={group:'ИС2-25',name:'Физика',s1:44,s2:56,teacher:'Тест А.А.',f1:'З',f2:'Э'};
   assert.equal((await call({action:'planSave',token,record:{...record,s1:-1}})).ok,false);
   assert.equal((await call({action:'planSave',token,record:{...record,f1:'invalid'}})).ok,false);

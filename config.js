@@ -61,7 +61,7 @@ window.SCHEDULE_CONFIG = {
   examsUrl: '',
 
   // Ссылка на веб-приложение Google Apps Script из таблицы администраторов (apps-script/Code.gs).
-  // Пока поле пустое, вход для администратора работает в демо-режиме (логин demo, пароль demo):
+  // Пока поле пустое, вход для администратора работает в демо-режиме (логин DEMO, пароль 12345678):
   // всё можно попробовать, но правки видны только в браузере, где их внесли.
   adminApi: 'https://script.google.com/macros/s/AKfycbxLjfi01Go85qu4TICMv8u88F-BL1TruagwTJYf_ZCxt1ysQ6qAt3ct0TdyE0a3_FCehA/exec',
 

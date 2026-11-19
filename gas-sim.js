@@ -6,7 +6,8 @@
 
   var BOOK_KEY = 'raspisanie.demo.book.v2';
   var CACHE_KEY = 'raspisanie.demo.cache.v2';
-  var DEMO_ADMIN = { login: 'demo', name: 'Демо-администратор', password: 'demo' };
+  var DEMO_PASS_KEY = 'raspisanie.demo.pass.v2';
+  var DEMO_ADMIN = { login: 'DEMO', name: 'Демо-администратор', password: '12345678' };
 
   function readJSON(key, fallback) {
     try { var v = JSON.parse(localStorage.getItem(key) || 'null'); return v == null ? fallback : v; } catch (e) { return fallback; }
@@ -142,9 +143,16 @@
     })).then(function (parts) {
       var code = parts.join('\n');
       var make = new Function('SpreadsheetApp', 'CacheService', 'LockService', 'Utilities', 'Session', 'ContentService', 'UrlFetchApp',
-        code + '\n;return { doGet: doGet, doPost: doPost, addAdmin: addAdmin, readAdmins: readAdmins };');
+        code + '\n;function __demoAdmin(login, pass) {' +
+        '  var a = readAdmins().filter(function (x) { return String(x.login).toLowerCase() === "demo"; })[0];' +
+        '  if (!a) return false; a.login = login; a.salt = Utilities.getUuid(); a.hash = hashPassword(pass, a.salt);' +
+        '  writeRow(SHEETS.admins, ADMIN_COLS, ADMIN_HEAD, a, a._row); return true; }' +
+        '\n;return { doGet: doGet, doPost: doPost, addAdmin: addAdmin, readAdmins: readAdmins, demoAdmin: __demoAdmin };');
       var api = make(SpreadsheetApp, CacheService, LockService, Utilities, Session, ContentService, UrlFetchApp);
       if (!api.readAdmins().length) { api.addAdmin(DEMO_ADMIN.login, DEMO_ADMIN.name, DEMO_ADMIN.password); writeJSON(BOOK_KEY, book); }
+      // a browser that used the demo before keeps its edits; only the old demo/demo sign-in becomes DEMO / 12345678
+      else if (!localStorage.getItem(DEMO_PASS_KEY)) { api.demoAdmin(DEMO_ADMIN.login, DEMO_ADMIN.password); writeJSON(BOOK_KEY, book); }
+      try { localStorage.setItem(DEMO_PASS_KEY, '1'); } catch (e) { /* storage unavailable */ }
       return api;
     });
     server.catch(function () { server = null; });
